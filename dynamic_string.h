@@ -77,12 +77,23 @@ extern "C" {
 // ============================================================================
 
 /**
- * @brief Opaque string data structure
+ * @brief Internal string data structure with reference counting
  *
- * Internal data structure containing string metadata and data.
- * Users should not access fields directly.
+ * This structure contains the actual string data along with metadata for
+ * reference counting and length tracking. The string data immediately follows
+ * the structure in memory for optimal cache locality.
  *
- * @note Memory layout: [ref_count|length|string_data|\0]
+ * @warning This is an internal structure - users should not access fields directly
+ * @note Memory layout: [length|ref_count|string_data|null_terminator]
+ *
+ * @var ds_data::length
+ * Number of bytes in the string (excluding null terminator)
+ *
+ * @var ds_data::ref_count
+ * Number of ds_string handles pointing to this data
+ *
+ * @var ds_data::array
+ * Flexible array member containing the actual UTF-8 string data plus null terminator
  */
 typedef struct ds_data {
     size_t length;
@@ -91,18 +102,52 @@ typedef struct ds_data {
 } ds_data;
 
 /**
- * @brief Immutable string handle
+ * @brief Handle to an immutable, reference-counted string
  *
- * Handle to an immutable, reference-counted string. Multiple ds_string
- * instances can safely share the same underlying data.
+ * This is the main string type used throughout the library. Multiple ds_string
+ * instances can safely share the same underlying data through reference counting.
+ * All string operations are immutable - they return new strings rather than
+ * modifying existing ones.
  *
  * @note Strings are immutable - all operations return new strings
+ * @note Multiple handles can safely share the same data
+ * @note Always call ds_release() when done with a string
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string str = ds_create("Hello");
+ * ds_string shared = ds_retain(str);  // Both point to same data
+ * ds_string new_str = ds_append(str, " World");  // New string created
+ *
+ * ds_release(&str);
+ * ds_release(&shared);
+ * ds_release(&new_str);
+ * @endcode
+ *
+ * @var ds_string::data
+ * Pointer to the internal data structure (may be NULL for DS_NULL_STRING)
  */
 typedef struct {
     ds_data* data;
 } ds_string;
 
-// Special null string constant
+/**
+ * @brief Null string constant representing an invalid or empty string handle
+ *
+ * This constant represents a null string that contains no data and should be used
+ * to initialize ds_string variables or as a return value for error conditions.
+ *
+ * @note This is equivalent to a ds_string with a NULL data pointer
+ * @warning Do not call ds_release() on DS_NULL_STRING - it's safe but unnecessary
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string str = DS_NULL_STRING;  // Safe initialization
+ * if (str.data == NULL) {
+ *     printf("String is null\n");
+ * }
+ * @endcode
+ */
 extern const ds_string DS_NULL_STRING;
 
 /**
@@ -235,13 +280,192 @@ DS_DEF void ds_release(ds_string* str);
  * @see ds_prepend(), ds_insert(), ds_append_char()
  */
 DS_DEF ds_string ds_append(ds_string str, const char* text);
+
+/**
+ * @brief Append a Unicode codepoint to a string
+ *
+ * Creates a new string by appending the given Unicode codepoint to the end
+ * of the input string. The codepoint is automatically encoded as UTF-8.
+ *
+ * @param str Source string (may be DS_NULL_STRING)
+ * @param codepoint Unicode codepoint to append (U+0000 to U+10FFFF)
+ * @return New string with appended codepoint, or DS_NULL_STRING on failure
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string base = ds_create("Hello");
+ * ds_string with_emoji = ds_append_char(base, 0x1F44B);  // 👋 waving hand
+ * ds_string with_space = ds_append_char(with_emoji, 0x20);  // space character
+ *
+ * printf("Result: %s\n", ds_cstr(with_space));  // "Hello👋 "
+ *
+ * ds_release(&base);
+ * ds_release(&with_emoji);
+ * ds_release(&with_space);
+ * @endcode
+ *
+ * @note Invalid codepoints (> U+10FFFF) are replaced with U+FFFD (replacement character)
+ * @note Returns retained copy of original if codepoint is 0
+ * @see ds_append(), ds_sb_append_char()
+ */
 DS_DEF ds_string ds_append_char(ds_string str, uint32_t codepoint);
+
+/**
+ * @brief Prepend text to the beginning of a string
+ *
+ * Creates a new string by inserting the given text at the beginning of the
+ * input string. The original string is unchanged (immutable).
+ *
+ * @param str Source string (may be DS_NULL_STRING)
+ * @param text Text to prepend (may be NULL)
+ * @return New string with prepended text, or DS_NULL_STRING on failure
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string base = ds_create("World!");
+ * ds_string result = ds_prepend(base, "Hello ");
+ *
+ * printf("Original: %s\n", ds_cstr(base));    // "World!"
+ * printf("Result: %s\n", ds_cstr(result));    // "Hello World!"
+ *
+ * ds_release(&base);
+ * ds_release(&result);
+ * @endcode
+ *
+ * @note Returns retained copy of original if text is NULL or empty
+ * @note If str is DS_NULL_STRING, creates new string from text
+ * @see ds_append(), ds_insert()
+ */
 DS_DEF ds_string ds_prepend(ds_string str, const char* text);
+
+/**
+ * @brief Insert text at a specific position in a string
+ *
+ * Creates a new string by inserting the given text at the specified byte
+ * position in the input string. The original string is unchanged.
+ *
+ * @param str Source string (may be DS_NULL_STRING)
+ * @param index Byte position where to insert text (0-based)
+ * @param text Text to insert (may be NULL)
+ * @return New string with inserted text, or DS_NULL_STRING on failure
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string base = ds_create("Hello World");
+ * ds_string result = ds_insert(base, 6, "Beautiful ");
+ *
+ * printf("Result: %s\n", ds_cstr(result));  // "Hello Beautiful World"
+ *
+ * ds_release(&base);
+ * ds_release(&result);
+ * @endcode
+ *
+ * @warning Index is in bytes, not Unicode codepoints
+ * @note Returns retained copy of original if text is NULL or empty
+ * @note If index > string length, returns retained copy of original
+ * @see ds_append(), ds_prepend()
+ */
 DS_DEF ds_string ds_insert(ds_string str, size_t index, const char* text);
+
+/**
+ * @brief Extract a substring from a string
+ *
+ * Creates a new string containing a portion of the input string, starting
+ * at the specified byte position and extending for the given length.
+ *
+ * @param str Source string (may be DS_NULL_STRING)
+ * @param start Starting byte position (0-based)
+ * @param len Number of bytes to include in substring
+ * @return New string containing the substring, or empty string if invalid range
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string text = ds_create("Hello World");
+ * ds_string hello = ds_substring(text, 0, 5);    // "Hello"
+ * ds_string world = ds_substring(text, 6, 5);    // "World"
+ * ds_string partial = ds_substring(text, 6, 100); // "World" (clamped)
+ *
+ * ds_release(&text);
+ * ds_release(&hello);
+ * ds_release(&world);
+ * ds_release(&partial);
+ * @endcode
+ *
+ * @warning Positions are in bytes, not Unicode codepoints
+ * @note If start >= string length, returns empty string
+ * @note If start + len > string length, len is clamped to available data
+ * @see ds_codepoint_at() for Unicode-aware character access
+ */
 DS_DEF ds_string ds_substring(ds_string str, size_t start, size_t len);
 
 // String concatenation
+
+/**
+ * @brief Concatenate two strings
+ *
+ * Creates a new string by joining two strings together. This is equivalent
+ * to ds_append() but takes two ds_string parameters instead of a string and C string.
+ *
+ * @param a First string (may be DS_NULL_STRING)
+ * @param b Second string (may be DS_NULL_STRING)
+ * @return New string containing a + b, or DS_NULL_STRING if both inputs are null
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string hello = ds_create("Hello");
+ * ds_string world = ds_create(" World");
+ * ds_string result = ds_concat(hello, world);
+ *
+ * printf("Result: %s\n", ds_cstr(result));  // "Hello World"
+ *
+ * ds_release(&hello);
+ * ds_release(&world);
+ * ds_release(&result);
+ * @endcode
+ *
+ * @note If either string is DS_NULL_STRING, returns retained copy of the other
+ * @note More efficient than ds_append() when both inputs are ds_string
+ * @see ds_append(), ds_join()
+ */
 DS_DEF ds_string ds_concat(ds_string a, ds_string b);
+
+/**
+ * @brief Join multiple strings with a separator
+ *
+ * Creates a new string by joining an array of strings together with the
+ * specified separator between each string.
+ *
+ * @param strings Array of ds_string to join (may contain DS_NULL_STRING entries)
+ * @param count Number of strings in the array
+ * @param separator Separator to insert between strings (may be NULL)
+ * @return New string with all strings joined, or empty string if count is 0
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string words[] = {
+ *     ds_create("The"),
+ *     ds_create("quick"),
+ *     ds_create("brown"),
+ *     ds_create("fox")
+ * };
+ *
+ * ds_string sentence = ds_join(words, 4, " ");
+ * printf("Result: %s\n", ds_cstr(sentence));  // "The quick brown fox"
+ *
+ * ds_string csv = ds_join(words, 4, ",");
+ * printf("CSV: %s\n", ds_cstr(csv));  // "The,quick,brown,fox"
+ *
+ * // Clean up
+ * for (int i = 0; i < 4; i++) ds_release(&words[i]);
+ * ds_release(&sentence);
+ * ds_release(&csv);
+ * @endcode
+ *
+ * @note DS_NULL_STRING entries in the array are treated as empty strings
+ * @note If separator is NULL, strings are joined without separation
+ * @note If count is 1, returns retained copy of the single string
+ * @see ds_concat()
+ */
 DS_DEF ds_string ds_join(ds_string* strings, size_t count, const char* separator);
 
 // Utility functions (read-only)
