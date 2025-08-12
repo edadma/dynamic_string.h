@@ -1,28 +1,37 @@
-/*
- * dynamic_string.h - v0.0.1 - Immutable reference counted string library
+/**
+ * @file dynamic_string.h
+ * @brief Modern, efficient, single-file string library for C
+ * @version 0.0.1
+ * @date 2025
  *
- * DUAL LICENSED under your choice of:
- * - MIT License (see LICENSE-MIT)
- * - The Unlicense (see LICENSE-UNLICENSE)
+ * @details
+ * A modern, efficient, single-file string library for C featuring:
+ * - **Reference counting** with automatic memory management
+ * - **Immutable strings** for safety and sharing
+ * - **Copy-on-write StringBuilder** for efficient construction
+ * - **Unicode support** with UTF-8 storage and codepoint iteration
+ * - **Zero dependencies** - just drop in the .h file
+ * - **FFI-friendly** design for use with other languages
  *
- * USAGE:
- *   In exactly one C file, #define DS_IMPLEMENTATION before including this file:
+ * @section usage_section Usage
+ * @code{.c}
+ * #define DS_IMPLEMENTATION
+ * #include "dynamic_string.h"
  *
- *   #define DS_IMPLEMENTATION
- *   #include "dynamic_string.h"
+ * int main() {
+ *     ds_string greeting = ds_create("Hello");
+ *     ds_string full = ds_append(greeting, " World!");
+ *     printf("%s\n", ds_cstr(full));
+ *     ds_release(&greeting);
+ *     ds_release(&full);
+ *     return 0;
+ * }
+ * @endcode
  *
- *   In all other files, just include normally:
- *   #include "dynamic_string.h"
- *
- * EXAMPLE:
- *   ds_string str = ds_create("Hello");
- *   ds_string copy = ds_retain(str);      // Share the same data
- *   ds_string str2 = ds_append(str, " World!");  // Creates new string
- *   printf("%s\n", ds_cstr(str));        // prints "Hello"
- *   printf("%s\n", ds_cstr(str2));       // prints "Hello World!"
- *   ds_release(&str);   // Decrements ref count
- *   ds_release(&copy);  // Decrements ref count
- *   ds_release(&str2);  // Last reference - frees memory
+ * @section license_section License
+ * Dual licensed under your choice of:
+ * - MIT License
+ * - The Unlicense (public domain)
  */
 
 #ifndef DYNAMIC_STRING_H
@@ -67,13 +76,28 @@ extern "C" {
 // INTERFACE
 // ============================================================================
 
-// Internal data structure (users shouldn't access directly)
+/**
+ * @brief Opaque string data structure
+ *
+ * Internal data structure containing string metadata and data.
+ * Users should not access fields directly.
+ *
+ * @note Memory layout: [ref_count|length|string_data|\0]
+ */
 typedef struct ds_data {
     size_t length;
     size_t ref_count;
     char array[]; // Flexible array member - the actual string data
 } ds_data;
 
+/**
+ * @brief Immutable string handle
+ *
+ * Handle to an immutable, reference-counted string. Multiple ds_string
+ * instances can safely share the same underlying data.
+ *
+ * @note Strings are immutable - all operations return new strings
+ */
 typedef struct {
     ds_data* data;
 } ds_string;
@@ -81,13 +105,135 @@ typedef struct {
 // Special null string constant
 extern const ds_string DS_NULL_STRING;
 
-// Core reference counting functions
+/**
+ * @defgroup core_functions Core String Functions
+ * @brief Basic string creation, retention, and release functions
+ * @{
+ */
+
+/**
+ * @brief Create a new string from a C string
+ *
+ * Creates a new ds_string by copying data from a null-terminated C string.
+ * The resulting string is independent of the input buffer.
+ *
+ * @param text Null-terminated C string to copy (may be NULL)
+ * @return New ds_string instance, or DS_NULL_STRING on failure
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string str = ds_create("Hello World");
+ * printf("Created: %s\n", ds_cstr(str));
+ * ds_release(&str);
+ * @endcode
+ *
+ * @note If text is NULL, returns DS_NULL_STRING
+ * @see ds_create_length(), ds_empty()
+ */
 DS_DEF ds_string ds_create(const char* text);
+
+/**
+ * @brief Create a string from a buffer with explicit length
+ *
+ * Creates a new ds_string by copying the specified number of bytes
+ * from the input buffer. The buffer does not need to be null-terminated.
+ *
+ * @param text Source buffer (may contain embedded nulls)
+ * @param length Number of bytes to copy from buffer
+ * @return New ds_string instance, or DS_NULL_STRING on failure
+ *
+ * @par Example:
+ * @code{.c}
+ * const char buffer[] = "Hello\0World";
+ * ds_string str = ds_create_length(buffer, 11);  // Includes embedded null
+ * printf("Length: %zu\n", ds_length(str));        // Prints: 11
+ * ds_release(&str);
+ * @endcode
+ *
+ * @note The resulting string will be null-terminated regardless of input
+ * @see ds_create()
+ */
 DS_DEF ds_string ds_create_length(const char* text, size_t length);
+
+/**
+ * @brief Increment reference count and return shared handle
+ *
+ * Creates a new handle to the same string data without copying.
+ * Both the original and returned handles refer to the same memory.
+ *
+ * @param str String to retain (may be DS_NULL_STRING)
+ * @return New handle to the same string data
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string original = ds_create("Shared data");
+ * ds_string copy = ds_retain(original);    // No memory copy!
+ *
+ * printf("Ref count: %zu\n", ds_ref_count(original));  // Prints: 2
+ * printf("Same data: %s\n", (original.data == copy.data) ? "YES" : "NO");
+ *
+ * ds_release(&original);
+ * ds_release(&copy);
+ * @endcode
+ *
+ * @note This is very efficient - no memory allocation or copying occurs
+ * @see ds_release(), ds_ref_count()
+ */
 DS_DEF ds_string ds_retain(ds_string str);
+
+/**
+ * @brief Decrement reference count and free memory if last reference
+ *
+ * Decrements the reference count of the string. If this was the last
+ * reference, the memory is freed. The handle is set to DS_NULL_STRING.
+ *
+ * @param str Pointer to string handle to release (may be NULL or point to DS_NULL_STRING)
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string str = ds_create("Hello");
+ * ds_string shared = ds_retain(str);
+ *
+ * ds_release(&str);     // Decrements count, memory still valid
+ * printf("%s\n", ds_cstr(shared));  // Still works - "Hello"
+ * ds_release(&shared);  // Last reference - memory freed
+ * @endcode
+ *
+ * @warning After calling ds_release(), the handle should not be used
+ * @note Safe to call multiple times or with NULL pointer
+ * @see ds_retain(), ds_ref_count()
+ */
 DS_DEF void ds_release(ds_string* str);
 
+/** @} */
+
 // String operations (return new strings - immutable)
+
+/**
+ * @brief Append text to a string
+ *
+ * Creates a new string by appending the given text to the end of the
+ * input string. The original string is unchanged (immutable).
+ *
+ * @param str Source string (may be DS_NULL_STRING)
+ * @param text Text to append (may be NULL)
+ * @return New string with appended text, or DS_NULL_STRING on failure
+ *
+ * @par Example:
+ * @code{.c}
+ * ds_string base = ds_create("Hello");
+ * ds_string result = ds_append(base, " World!");
+ *
+ * printf("Original: %s\n", ds_cstr(base));    // "Hello"
+ * printf("Result: %s\n", ds_cstr(result));    // "Hello World!"
+ *
+ * ds_release(&base);
+ * ds_release(&result);
+ * @endcode
+ *
+ * @note Returns retained copy of original if text is NULL or empty
+ * @see ds_prepend(), ds_insert(), ds_append_char()
+ */
 DS_DEF ds_string ds_append(ds_string str, const char* text);
 DS_DEF ds_string ds_append_char(ds_string str, uint32_t codepoint);
 DS_DEF ds_string ds_prepend(ds_string str, const char* text);
