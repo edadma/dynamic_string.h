@@ -1,5 +1,5 @@
 /*
- * dynamic_string.h - v3.0 - Immutable reference counted string library
+ * dynamic_string.h - v0.0.1 - Immutable reference counted string library
  *
  * DUAL LICENSED under your choice of:
  * - MIT License (see LICENSE-MIT)
