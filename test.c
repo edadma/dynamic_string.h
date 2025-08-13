@@ -246,6 +246,63 @@ void test_stringbuilder_ensure_unique_isolation(void) {
     ds_sb_destroy(&sb);
 }
 
+void test_stringbuilder_minimal_create_destroy(void) {
+    printf("=== Testing minimal create/destroy ===\n");
+    ds_stringbuilder sb = ds_sb_create_with_capacity(8);
+    printf("Created: data=%p, capacity=%zu\n", (void*)sb.data, sb.capacity);
+    ds_sb_destroy(&sb);
+    printf("Destroyed successfully\n");
+}
+
+void test_stringbuilder_single_append(void) {
+    printf("=== Testing single append ===\n");
+    ds_stringbuilder sb = ds_sb_create_with_capacity(8);
+    printf("Before append: length=%zu, capacity=%zu, refcount=%zu\n", ds_sb_length(&sb), ds_sb_capacity(&sb),
+           ds_refcount(sb.data));
+
+    int result = ds_sb_append(&sb, "X");
+    printf("Append result: %d\n", result);
+    printf("After append: length=%zu, capacity=%zu, refcount=%zu\n", ds_sb_length(&sb), ds_sb_capacity(&sb),
+           ds_refcount(sb.data));
+
+    ds_sb_destroy(&sb);
+    printf("Single append test completed\n");
+}
+
+void test_stringbuilder_no_growth_needed(void) {
+    printf("=== Testing multiple appends without growth ===\n");
+    ds_stringbuilder sb = ds_sb_create_with_capacity(10);
+
+    for (int i = 1; i <= 5; i++) {
+        printf("Append %d: ", i);
+        int result = ds_sb_append(&sb, "X");
+        printf("result=%d, length=%zu, capacity=%zu\n", result, ds_sb_length(&sb), ds_sb_capacity(&sb));
+    }
+
+    ds_sb_destroy(&sb);
+    printf("No growth test completed\n");
+}
+
+void test_stringbuilder_exactly_one_growth(void) {
+    printf("=== Testing exactly one growth trigger ===\n");
+    ds_stringbuilder sb = ds_sb_create_with_capacity(4);
+
+    // Fill to capacity (should be fine)
+    for (int i = 1; i <= 3; i++) {
+        printf("Safe append %d: ", i);
+        int result = ds_sb_append(&sb, "X");
+        printf("result=%d, length=%zu, capacity=%zu\n", result, ds_sb_length(&sb), ds_sb_capacity(&sb));
+    }
+
+    printf("About to trigger growth...\n");
+    // This should trigger growth
+    int result = ds_sb_append(&sb, "Y");
+    printf("Growth append result=%d, length=%zu, capacity=%zu\n", result, ds_sb_length(&sb), ds_sb_capacity(&sb));
+
+    ds_sb_destroy(&sb);
+    printf("One growth test completed\n");
+}
+
 // ============================================================================
 // UNICODE BOUNDARY CONDITIONS (third priority)
 // ============================================================================
@@ -459,6 +516,11 @@ void test(void) {
     // RUN_TEST(test_stringbuilder_step_by_step);
     RUN_TEST(test_stringbuilder_refcount_tracking);
     // RUN_TEST(test_stringbuilder_ensure_unique_isolation);
+
+    RUN_TEST(test_stringbuilder_minimal_create_destroy);
+    RUN_TEST(test_stringbuilder_single_append);
+    RUN_TEST(test_stringbuilder_no_growth_needed);
+    RUN_TEST(test_stringbuilder_exactly_one_growth);
 
     // Unicode boundary conditions (third priority)
     RUN_TEST(test_unicode_codepoint_iteration);
