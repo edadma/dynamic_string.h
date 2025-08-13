@@ -734,9 +734,7 @@ static int ds_sb_ensure_capacity(ds_stringbuilder* sb, size_t required_capacity)
     // Get original block pointer and resize
     void* old_block = (char*)sb->data - sizeof(ds_internal);
     void* new_block = DS_REALLOC(old_block, sizeof(ds_internal) + new_capacity);
-    if (!new_block) {
-        return 0;
-    }
+    DS_ASSERT(new_block && "Memory re-allocation failed");
 
     sb->data = (char*)new_block + sizeof(ds_internal);
     sb->capacity = new_capacity;
@@ -779,6 +777,7 @@ DS_DEF ds_stringbuilder ds_sb_create_with_capacity(size_t capacity) {
         capacity = DS_SB_INITIAL_CAPACITY;
 
     void* block = DS_MALLOC(sizeof(ds_internal) + capacity);
+    DS_ASSERT(block && "Memory allocation failed");
 
     ds_internal* meta = (ds_internal*)block;
     meta->refcount = 1;
