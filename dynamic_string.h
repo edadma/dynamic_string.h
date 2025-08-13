@@ -288,8 +288,7 @@ static inline ds_internal* ds_meta(ds_string str) { return (ds_internal*)(str - 
 static ds_string ds_alloc(size_t length) {
     // Allocate: metadata + string data + null terminator
     void* block = DS_MALLOC(sizeof(ds_internal) + length + 1);
-    if (!block)
-        return NULL;
+    DS_ASSERT(block && "Memory allocation failed");
 
     // Initialize metadata
     ds_internal* meta = (ds_internal*)block;
@@ -337,8 +336,6 @@ DS_DEF ds_string ds(const char* text) {
 
 DS_DEF ds_string ds_create_length(const char* text, size_t length) {
     ds_string str = ds_alloc(length);
-    if (!str)
-        return NULL;
 
     if (text && length > 0) {
         memcpy(str, text, length);
@@ -380,8 +377,6 @@ DS_DEF ds_string ds_append(ds_string str, const char* text) {
 
     size_t new_length = ds_meta(str)->length + text_len;
     ds_string result = ds_alloc(new_length);
-    if (!result)
-        return NULL;
 
     // Copy original string
     memcpy(result, str, ds_meta(str)->length);
@@ -448,8 +443,6 @@ DS_DEF ds_string ds_prepend(ds_string str, const char* text) {
 
     size_t new_length = ds_meta(str)->length + text_len;
     ds_string result = ds_alloc(new_length);
-    if (!result)
-        return NULL;
 
     // Copy new text first
     memcpy(result, text, text_len);
@@ -472,8 +465,6 @@ DS_DEF ds_string ds_insert(ds_string str, size_t index, const char* text) {
     size_t str_len = ds_meta(str)->length;
     size_t new_length = str_len + text_len;
     ds_string result = ds_alloc(new_length);
-    if (!result)
-        return NULL;
 
     // Copy part before insertion point
     memcpy(result, str, index);
@@ -508,8 +499,6 @@ DS_DEF ds_string ds_concat(ds_string a, ds_string b) {
 
     size_t new_length = ds_meta(a)->length + ds_meta(b)->length;
     ds_string result = ds_alloc(new_length);
-    if (!result)
-        return NULL;
 
     memcpy(result, a, ds_meta(a)->length);
     memcpy(result + ds_meta(a)->length, b, ds_meta(b)->length);
@@ -540,8 +529,6 @@ DS_DEF ds_string ds_join(ds_string* strings, size_t count, const char* separator
     }
 
     ds_string result = ds_alloc(total_length);
-    if (!result)
-        return NULL;
 
     // Build the joined string
     size_t pos = 0;
@@ -765,41 +752,20 @@ static int ds_sb_ensure_unique(ds_stringbuilder* sb) {
         return 1; // Already unique
     }
 
-    // Need to create our own copy
+    // Need to create our own copy - just allocate exactly what we need
     size_t current_length = meta->length;
-    size_t new_capacity = sb->capacity;
-
-    // Use ds_alloc for the base allocation, then extend if needed
     ds_string new_str = ds_alloc(current_length);
-    if (!new_str) {
-        return 0;
-    }
 
     // Copy current content
     memcpy(new_str, sb->data, current_length);
-
-    // If we need more capacity than ds_alloc gave us, extend it
-    if (new_capacity > current_length + 1) {
-        void* old_block = (char*)new_str - sizeof(ds_internal);
-        void* new_block = DS_REALLOC(old_block, sizeof(ds_internal) + new_capacity);
-        if (!new_block) {
-            // Clean up the allocation we just made
-            ds_string temp = new_str;
-            ds_release(&temp);
-            return 0;
-        }
-        new_str = (char*)new_block + sizeof(ds_internal);
-    } else {
-        new_capacity = current_length + 1;
-    }
 
     // Release old reference properly
     ds_string old_str = sb->data;
     ds_release(&old_str);
 
-    // Update StringBuilder
+    // Update StringBuilder - capacity is just what ds_alloc gave us
     sb->data = new_str;
-    sb->capacity = new_capacity;
+    sb->capacity = current_length + 1; // ds_alloc gives us length + null terminator
 
     return 1;
 }
