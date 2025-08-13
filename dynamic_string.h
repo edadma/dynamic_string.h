@@ -813,18 +813,14 @@ DS_DEF ds_stringbuilder ds_sb_create_with_capacity(size_t capacity) {
         capacity = DS_SB_INITIAL_CAPACITY;
 
     void* block = DS_MALLOC(sizeof(ds_internal) + capacity);
-    if (block) {
-        ds_internal* meta = (ds_internal*)block;
-        meta->refcount = 1;
-        meta->length = 0;
 
-        sb.data = (char*)block + sizeof(ds_internal);
-        sb.data[0] = '\0';
-        sb.capacity = capacity;
-    } else {
-        sb.data = NULL;
-        sb.capacity = 0;
-    }
+    ds_internal* meta = (ds_internal*)block;
+    meta->refcount = 1;
+    meta->length = 0;
+
+    sb.data = (char*)block + sizeof(ds_internal);
+    sb.data[0] = '\0';
+    sb.capacity = capacity;
 
     return sb;
 }
