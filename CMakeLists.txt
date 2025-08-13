@@ -15,7 +15,10 @@ if (NOT CMAKE_BUILD_TYPE)
 endif ()
 
 # Example executable
-add_executable(example example.c)
+add_executable(string_tests test.c unity.c)
+
+enable_testing()
+add_test(NAME string_tests COMMAND test)
 
 # Optional: Installation
 install(FILES dynamic_string.h
