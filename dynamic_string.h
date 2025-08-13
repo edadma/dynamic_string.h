@@ -141,8 +141,8 @@ DS_DEF ds_string ds_append(ds_string str, const char* text);
 /**
  * @brief Append a Unicode codepoint to a string
  * @param str Source string (may be NULL)
- * @param codepoint Unicode codepoint to append (U+0000 to U+10FFFF)
- * @return New string with appended codepoint, or NULL on failure
+ * @param codepoint Unicode codepoint to append (invalid codepoints become U+FFFD)
+ * @return New string with appended text, retained original if text is NULL/empty, or NULL if allocation fails
  */
 DS_DEF ds_string ds_append_char(ds_string str, uint32_t codepoint);
 
@@ -159,7 +159,7 @@ DS_DEF ds_string ds_prepend(ds_string str, const char* text);
  * @param str Source string (may be NULL)
  * @param index Byte position where to insert text (0-based)
  * @param text Text to insert (may be NULL)
- * @return New string with inserted text, or NULL on failure
+ * @return New string with inserted text, or original string if index is invalid, or NULL on allocation failure
  */
 DS_DEF ds_string ds_insert(ds_string str, size_t index, const char* text);
 
