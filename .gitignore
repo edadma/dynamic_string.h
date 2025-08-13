@@ -79,3 +79,6 @@ Desktop.ini
 *.rar
 *.tar
 *.zip
+
+html/
+latex/
