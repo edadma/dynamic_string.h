@@ -227,7 +227,7 @@ DS_DEF uint32_t ds_codepoint_at(ds_string str, size_t index);
 // ============================================================================
 
 typedef struct {
-    char* data; // Points to string data (same layout as ds_string)
+    ds_string data; // Points to string data (same layout as ds_string)
     size_t capacity; // Capacity for growth (length is in metadata)
 } ds_stringbuilder;
 
@@ -706,7 +706,7 @@ DS_DEF uint32_t ds_codepoint_at(ds_string str, size_t index) {
 }
 
 // ============================================================================
-// STRINGBUILDER - Rewritten to use consistent helper functions
+// STRINGBUILDER
 // ============================================================================
 
 #ifndef DS_SB_INITIAL_CAPACITY
@@ -792,14 +792,8 @@ DS_DEF ds_stringbuilder ds_sb_create_with_capacity(size_t capacity) {
 }
 
 DS_DEF void ds_sb_destroy(ds_stringbuilder* sb) {
-    if (sb && sb->data) {
-        ds_internal* meta = ds_meta(sb->data);
-        meta->refcount--;
-        if (meta->refcount == 0) {
-            void* block = (char*)sb->data - sizeof(ds_internal);
-            DS_FREE(block);
-        }
-        sb->data = NULL;
+    if (sb) {
+        ds_release(&sb->data); // Handles refcount decrement and freeing
         sb->capacity = 0;
     }
 }
