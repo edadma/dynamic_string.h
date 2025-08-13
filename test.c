@@ -536,9 +536,9 @@ void test(void) {
     RUN_TEST(test_stringbuilder_capacity_growth);
     RUN_TEST(test_stringbuilder_ensure_unique_behavior);
 
-    // RUN_TEST(test_stringbuilder_step_by_step);
+    RUN_TEST(test_stringbuilder_step_by_step);
     RUN_TEST(test_stringbuilder_refcount_tracking);
-    // RUN_TEST(test_stringbuilder_ensure_unique_isolation);
+    RUN_TEST(test_stringbuilder_ensure_unique_isolation);
 
     RUN_TEST(test_stringbuilder_minimal_create_destroy);
     RUN_TEST(test_stringbuilder_single_append);

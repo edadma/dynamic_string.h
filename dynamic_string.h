@@ -812,6 +812,7 @@ DS_DEF int ds_sb_append(ds_stringbuilder* sb, const char* text) {
     if (!ds_sb_ensure_capacity(sb, meta->length + text_len + 1))
         return 0;
 
+    meta = ds_meta(sb->data);
     memcpy(sb->data + meta->length, text, text_len);
     meta->length += text_len;
     sb->data[meta->length] = '\0';
@@ -833,6 +834,7 @@ DS_DEF int ds_sb_append_char(ds_stringbuilder* sb, uint32_t codepoint) {
     if (!ds_sb_ensure_capacity(sb, meta->length + bytes_needed + 1))
         return 0;
 
+    meta = ds_meta(sb->data);
     memcpy(sb->data + meta->length, utf8_buffer, bytes_needed);
     meta->length += bytes_needed;
     sb->data[meta->length] = '\0';
@@ -853,6 +855,7 @@ DS_DEF int ds_sb_append_string(ds_stringbuilder* sb, ds_string str) {
     if (!ds_sb_ensure_capacity(sb, sb_meta->length + str_meta->length + 1))
         return 0;
 
+    sb_meta = ds_meta(sb->data);
     memcpy(sb->data + sb_meta->length, str, str_meta->length);
     sb_meta->length += str_meta->length;
     sb->data[sb_meta->length] = '\0';
@@ -876,6 +879,8 @@ DS_DEF int ds_sb_insert(ds_stringbuilder* sb, size_t index, const char* text) {
         return 0;
     if (!ds_sb_ensure_capacity(sb, meta->length + text_len + 1))
         return 0;
+
+    meta = ds_meta(sb->data);
 
     // Move content after insertion point
     memmove(sb->data + index + text_len, sb->data + index, meta->length - index + 1);
