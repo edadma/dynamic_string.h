@@ -1,10 +1,3 @@
-#cmake_minimum_required(VERSION 3.31)
-#project(dynamic_string_h C)
-#
-#set(CMAKE_C_STANDARD 11)
-#
-#add_executable(dynamic_string_h main.c)
-
 cmake_minimum_required(VERSION 3.10)
 project(dynamic_string C)
 
@@ -17,9 +10,9 @@ set(CMAKE_C_FLAGS_DEBUG "-g -O0 -Wall -Wextra -Wpedantic")
 set(CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 # Default to Release build
-if(NOT CMAKE_BUILD_TYPE)
+if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
-endif()
+endif ()
 
 # Example executable
 add_executable(example example.c)
