@@ -1266,6 +1266,190 @@ void test_string_join(void) {
 // MAIN TEST FUNCTION
 // ============================================================================
 
+// ============================================================================
+// NEW FUNCTIONS TESTS
+// ============================================================================
+
+void test_string_contains(void) {
+    ds_string str = ds_new("Hello World");
+    
+    TEST_ASSERT_EQUAL_INT(1, ds_contains(str, "Hello"));
+    TEST_ASSERT_EQUAL_INT(1, ds_contains(str, "World"));
+    TEST_ASSERT_EQUAL_INT(1, ds_contains(str, "o W"));
+    TEST_ASSERT_EQUAL_INT(0, ds_contains(str, "xyz"));
+    TEST_ASSERT_EQUAL_INT(0, ds_contains(str, "hello"));  // case sensitive
+    
+    // Edge cases
+    TEST_ASSERT_EQUAL_INT(1, ds_contains(str, ""));  // empty string always found
+    TEST_ASSERT_EQUAL_INT(0, ds_contains(NULL, "Hello"));
+    TEST_ASSERT_EQUAL_INT(0, ds_contains(str, NULL));
+    
+    ds_release(&str);
+}
+
+void test_string_find_last(void) {
+    ds_string str = ds_new("Hello Hello World");
+    
+    TEST_ASSERT_EQUAL_INT(6, ds_find_last(str, "Hello"));
+    TEST_ASSERT_EQUAL_INT(12, ds_find_last(str, "World"));
+    TEST_ASSERT_EQUAL_INT(13, ds_find_last(str, "o"));
+    TEST_ASSERT_EQUAL_INT(-1, ds_find_last(str, "xyz"));
+    
+    // Edge cases
+    TEST_ASSERT_EQUAL_INT(0, ds_find_last(str, ""));  // empty string found at start
+    TEST_ASSERT_EQUAL_INT(-1, ds_find_last(NULL, "Hello"));
+    TEST_ASSERT_EQUAL_INT(-1, ds_find_last(str, NULL));
+    
+    ds_release(&str);
+}
+
+void test_string_hash(void) {
+    ds_string str1 = ds_new("Hello");
+    ds_string str2 = ds_new("Hello");
+    ds_string str3 = ds_new("World");
+    ds_string empty = ds_new("");
+    
+    // Same strings should have same hash
+    TEST_ASSERT_EQUAL_UINT(ds_hash(str1), ds_hash(str2));
+    
+    // Different strings should have different hash (highly likely)
+    TEST_ASSERT_NOT_EQUAL(ds_hash(str1), ds_hash(str3));
+    
+    // Empty string should have consistent hash
+    TEST_ASSERT_NOT_EQUAL_UINT(0, ds_hash(empty));
+    
+    // NULL should return 0
+    TEST_ASSERT_EQUAL_UINT(0, ds_hash(NULL));
+    
+    ds_release(&str1);
+    ds_release(&str2);
+    ds_release(&str3);
+    ds_release(&empty);
+}
+
+void test_string_compare_ignore_case(void) {
+    ds_string hello = ds_new("Hello");
+    ds_string HELLO = ds_new("HELLO");
+    ds_string hello_lower = ds_new("hello");
+    ds_string world = ds_new("World");
+    
+    // Case insensitive comparisons
+    TEST_ASSERT_EQUAL_INT(0, ds_compare_ignore_case(hello, HELLO));
+    TEST_ASSERT_EQUAL_INT(0, ds_compare_ignore_case(hello, hello_lower));
+    TEST_ASSERT_LESS_THAN(0, ds_compare_ignore_case(hello, world));
+    TEST_ASSERT_GREATER_THAN(0, ds_compare_ignore_case(world, hello));
+    
+    // NULL handling
+    TEST_ASSERT_EQUAL_INT(0, ds_compare_ignore_case(NULL, NULL));
+    TEST_ASSERT_LESS_THAN(0, ds_compare_ignore_case(NULL, hello));
+    TEST_ASSERT_GREATER_THAN(0, ds_compare_ignore_case(hello, NULL));
+    
+    ds_release(&hello);
+    ds_release(&HELLO);
+    ds_release(&hello_lower);
+    ds_release(&world);
+}
+
+void test_string_truncate(void) {
+    ds_string str = ds_new("Hello World");
+    
+    // No truncation needed
+    ds_string result1 = ds_truncate(str, 20, "...");
+    TEST_ASSERT_EQUAL_STRING("Hello World", result1);
+    
+    // Simple truncation without ellipsis
+    ds_string result2 = ds_truncate(str, 5, NULL);
+    TEST_ASSERT_EQUAL_STRING("Hello", result2);
+    
+    // Truncation with ellipsis
+    ds_string result3 = ds_truncate(str, 8, "...");
+    TEST_ASSERT_EQUAL_STRING("Hello...", result3);
+    
+    // Edge cases
+    ds_string result4 = ds_truncate(str, 2, "...");  // ellipsis longer than max
+    TEST_ASSERT_EQUAL_STRING("He", result4);
+    
+    TEST_ASSERT_NULL(ds_truncate(NULL, 5, "..."));
+    
+    ds_release(&str);
+    ds_release(&result1);
+    ds_release(&result2);
+    ds_release(&result3);
+    ds_release(&result4);
+}
+
+void test_string_format_v(void) {
+    // Test through ds_format which now uses ds_format_v internally
+    ds_string result = ds_format("Hello %s, age %d", "Alice", 25);
+    TEST_ASSERT_EQUAL_STRING("Hello Alice, age 25", result);
+    ds_release(&result);
+    
+    // NULL format should return NULL
+    ds_string null_result = ds_format(NULL);
+    TEST_ASSERT_NULL(null_result);
+}
+
+void test_string_json_escape(void) {
+    ds_string str1 = ds_new("Hello \"World\"");
+    ds_string escaped1 = ds_escape_json(str1);
+    TEST_ASSERT_EQUAL_STRING("Hello \\\"World\\\"", escaped1);
+    
+    ds_string str2 = ds_new("Line1\nLine2\tTabbed");
+    ds_string escaped2 = ds_escape_json(str2);
+    TEST_ASSERT_EQUAL_STRING("Line1\\nLine2\\tTabbed", escaped2);
+    
+    ds_string str3 = ds_new("Backslash\\Test");
+    ds_string escaped3 = ds_escape_json(str3);
+    TEST_ASSERT_EQUAL_STRING("Backslash\\\\Test", escaped3);
+    
+    // Control character
+    ds_string str4 = ds_new("Hello\x01World");
+    ds_string escaped4 = ds_escape_json(str4);
+    TEST_ASSERT_EQUAL_STRING("Hello\\u0001World", escaped4);
+    
+    // NULL handling
+    TEST_ASSERT_NULL(ds_escape_json(NULL));
+    
+    ds_release(&str1);
+    ds_release(&escaped1);
+    ds_release(&str2);
+    ds_release(&escaped2);
+    ds_release(&str3);
+    ds_release(&escaped3);
+    ds_release(&str4);
+    ds_release(&escaped4);
+}
+
+void test_string_json_unescape(void) {
+    ds_string str1 = ds_new("Hello \\\"World\\\"");
+    ds_string unescaped1 = ds_unescape_json(str1);
+    TEST_ASSERT_EQUAL_STRING("Hello \"World\"", unescaped1);
+    
+    ds_string str2 = ds_new("Line1\\nLine2\\tTabbed");
+    ds_string unescaped2 = ds_unescape_json(str2);
+    TEST_ASSERT_EQUAL_STRING("Line1\nLine2\tTabbed", unescaped2);
+    
+    ds_string str3 = ds_new("Backslash\\\\Test");
+    ds_string unescaped3 = ds_unescape_json(str3);
+    TEST_ASSERT_EQUAL_STRING("Backslash\\Test", unescaped3);
+    
+    ds_string str4 = ds_new("Hello\\u0041World");  // 'A'
+    ds_string unescaped4 = ds_unescape_json(str4);
+    TEST_ASSERT_EQUAL_STRING("HelloAWorld", unescaped4);
+    
+    // NULL handling
+    TEST_ASSERT_NULL(ds_unescape_json(NULL));
+    
+    ds_release(&str1);
+    ds_release(&unescaped1);
+    ds_release(&str2);
+    ds_release(&unescaped2);
+    ds_release(&str3);
+    ds_release(&unescaped3);
+    ds_release(&str4);
+    ds_release(&unescaped4);
+}
+
 void test(void) {
     UNITY_BEGIN();
 
@@ -1342,6 +1526,16 @@ void test(void) {
     RUN_TEST(test_functional_chaining);
     RUN_TEST(test_nested_operations);
     RUN_TEST(test_string_join);
+
+    // New functions tests
+    RUN_TEST(test_string_contains);
+    RUN_TEST(test_string_find_last);
+    RUN_TEST(test_string_hash);
+    RUN_TEST(test_string_compare_ignore_case);
+    RUN_TEST(test_string_truncate);
+    RUN_TEST(test_string_format_v);
+    RUN_TEST(test_string_json_escape);
+    RUN_TEST(test_string_json_unescape);
 
     UNITY_END();
 }

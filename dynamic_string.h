@@ -42,18 +42,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-// Version information
-#define DS_VERSION_MAJOR 0
-#define DS_VERSION_MINOR 1
-#define DS_VERSION_PATCH 0
-#define DS_VERSION_STRING "0.1.0"
-
-// Helper macro to create version number
-#define DS_VERSION_NUMBER(major, minor, patch) \
-    ((major) * 10000 + (minor) * 100 + (patch))
-
-#define DS_VERSION DS_VERSION_NUMBER(DS_VERSION_MAJOR, DS_VERSION_MINOR, DS_VERSION_PATCH)
+#include <ctype.h>
 
 // Configuration macros (user can override before including)
 #ifndef DS_MALLOC
@@ -73,11 +62,42 @@
 #define DS_ASSERT assert
 #endif
 
+/**
+ * @brief Enable atomic reference counting (default: 0)
+ * @note Requires C11 and stdatomic.h support
+ * @note Only reference counting is atomic/thread-safe, not string operations
+ * @warning String modifications still require external synchronization
+ */
+#ifndef DS_ATOMIC_REFCOUNT
+#define DS_ATOMIC_REFCOUNT 0
+#endif
+
 // API macros
 #ifdef DS_STATIC
 #define DS_DEF static
 #else
 #define DS_DEF extern
+#endif
+
+/* Check C11 support for atomic operations */
+#if DS_ATOMIC_REFCOUNT && __STDC_VERSION__ < 201112L
+    #error "DS_ATOMIC_REFCOUNT requires C11 or later for atomic support (compile with -std=c11 or later)"
+#endif
+
+/* atomic operations */
+#if DS_ATOMIC_REFCOUNT
+    #include <stdatomic.h>
+    #define DS_ATOMIC_SIZE_T _Atomic size_t
+    #define DS_ATOMIC_FETCH_ADD(ptr, val) atomic_fetch_add(ptr, val)
+    #define DS_ATOMIC_FETCH_SUB(ptr, val) atomic_fetch_sub(ptr, val)
+    #define DS_ATOMIC_LOAD(ptr) atomic_load(ptr)
+    #define DS_ATOMIC_STORE(ptr, val) atomic_store(ptr, val)
+#else
+    #define DS_ATOMIC_SIZE_T size_t
+    #define DS_ATOMIC_FETCH_ADD(ptr, val) (*(ptr) += (val), *(ptr) - (val))
+    #define DS_ATOMIC_FETCH_SUB(ptr, val) (*(ptr) -= (val), *(ptr) + (val))
+    #define DS_ATOMIC_LOAD(ptr) (*(ptr))
+    #define DS_ATOMIC_STORE(ptr, val) (*(ptr) = (val))
 #endif
 
 #ifdef __cplusplus
@@ -230,12 +250,44 @@ DS_DEF size_t ds_length(ds_string str);
 DS_DEF int ds_compare(ds_string a, ds_string b);
 
 /**
+ * @brief Compare two strings lexicographically (case-insensitive)
+ * @param a First string (may be NULL)
+ * @param b Second string (may be NULL)
+ * @return <0 if a < b, 0 if a == b, >0 if a > b
+ */
+DS_DEF int ds_compare_ignore_case(ds_string a, ds_string b);
+
+/**
+ * @brief Calculate hash value for string
+ * @param str String to hash (may be NULL)
+ * @return Hash value (0 if str is NULL)
+ * @note Uses FNV-1a hash algorithm
+ */
+DS_DEF size_t ds_hash(ds_string str);
+
+/**
  * @brief Find the first occurrence of a substring
  * @param str String to search in (may be NULL)
  * @param needle Substring to search for (may be NULL)
  * @return Index of first occurrence, or -1 if not found
  */
 DS_DEF int ds_find(ds_string str, const char* needle);
+
+/**
+ * @brief Find the last occurrence of a substring
+ * @param str String to search in (may be NULL)
+ * @param needle Substring to search for (may be NULL)
+ * @return Index of last occurrence, or -1 if not found
+ */
+DS_DEF int ds_find_last(ds_string str, const char* needle);
+
+/**
+ * @brief Check if string contains a substring
+ * @param str String to search in (may be NULL)
+ * @param needle Substring to search for (may be NULL)
+ * @return 1 if found, 0 otherwise
+ */
+DS_DEF int ds_contains(ds_string str, const char* needle);
 
 /**
  * @brief Check if string starts with a prefix
@@ -332,6 +384,15 @@ DS_DEF ds_string ds_to_lower(ds_string str);
 DS_DEF ds_string ds_repeat(ds_string str, size_t times);
 
 /**
+ * @brief Truncate string to maximum length with optional ellipsis
+ * @param str String to truncate (may be NULL)
+ * @param max_length Maximum length in bytes (not including ellipsis)
+ * @param ellipsis Ellipsis string to append if truncated (may be NULL)
+ * @return New string truncated to max_length, or retained original if already short enough
+ */
+DS_DEF ds_string ds_truncate(ds_string str, size_t max_length, const char* ellipsis);
+
+/**
  * @brief Reverse a string (Unicode-aware)
  * @param str String to reverse (may be NULL)
  * @return New string with characters in reverse order, preserving Unicode codepoints
@@ -403,6 +464,28 @@ DS_DEF void ds_free_split_result(ds_string* array, size_t count);
  * @return New formatted string, or NULL if fmt is NULL or formatting fails
  */
 DS_DEF ds_string ds_format(const char* fmt, ...);
+
+/**
+ * @brief Create formatted string using printf-style format specifiers (va_list version)
+ * @param fmt Format string (may be NULL)
+ * @param args Variable argument list
+ * @return New formatted string, or NULL if fmt is NULL or formatting fails
+ */
+DS_DEF ds_string ds_format_v(const char* fmt, va_list args);
+
+/**
+ * @brief Escape string for JSON
+ * @param str String to escape (may be NULL)
+ * @return New escaped string suitable for JSON, or NULL if str is NULL
+ */
+DS_DEF ds_string ds_escape_json(ds_string str);
+
+/**
+ * @brief Unescape JSON string
+ * @param str JSON string to unescape (may be NULL)
+ * @return New unescaped string, or NULL if str is NULL or invalid JSON
+ */
+DS_DEF ds_string ds_unescape_json(ds_string str);
 
 // Reference count inspection
 /**
@@ -520,7 +603,7 @@ DS_DEF const char* ds_builder_cstr(const ds_stringbuilder* sb);
  * @brief Internal metadata structure stored before string data
  */
 typedef struct ds_internal {
-    size_t refcount;
+    DS_ATOMIC_SIZE_T refcount;
     size_t length;
 } ds_internal;
 
@@ -547,7 +630,7 @@ static ds_string ds_alloc(size_t length) {
 
     // Initialize metadata
     ds_internal* meta = block;
-    meta->refcount = 1;
+    DS_ATOMIC_STORE(&meta->refcount, 1);
     meta->length = length;
 
     // Return pointer to string data portion
@@ -575,9 +658,9 @@ static void ds_dealloc(ds_string str) {
 
 DS_DEF size_t ds_length(ds_string str) { return str ? ds_meta(str)->length : 0; }
 
-DS_DEF size_t ds_refcount(ds_string str) { return str ? ds_meta(str)->refcount : 0; }
+DS_DEF size_t ds_refcount(ds_string str) { return str ? DS_ATOMIC_LOAD(&ds_meta(str)->refcount) : 0; }
 
-DS_DEF int ds_is_shared(ds_string str) { return str && ds_meta(str)->refcount > 1; }
+DS_DEF int ds_is_shared(ds_string str) { return str && DS_ATOMIC_LOAD(&ds_meta(str)->refcount) > 1; }
 
 DS_DEF int ds_is_empty(ds_string str) { return !str || ds_meta(str)->length == 0; }
 
@@ -601,7 +684,7 @@ DS_DEF ds_string ds_create_length(const char* text, size_t length) {
 
 DS_DEF ds_string ds_retain(ds_string str) {
     if (str) {
-        ds_meta(str)->refcount++;
+        DS_ATOMIC_FETCH_ADD(&ds_meta(str)->refcount, 1);
     }
     return str;
 }
@@ -609,8 +692,8 @@ DS_DEF ds_string ds_retain(ds_string str) {
 DS_DEF void ds_release(ds_string* str) {
     if (str && *str) {
         ds_internal* meta = ds_meta(*str);
-        meta->refcount--;
-        if (meta->refcount == 0) {
+        size_t old_count = DS_ATOMIC_FETCH_SUB(&meta->refcount, 1);
+        if (old_count == 1) {  // We were the last reference
             ds_dealloc(*str);
         }
         *str = NULL;
@@ -798,12 +881,79 @@ DS_DEF int ds_compare(ds_string a, ds_string b) {
     return strcmp(a_str, b_str);
 }
 
+DS_DEF int ds_compare_ignore_case(ds_string a, ds_string b) {
+    // Fast path: same object
+    if (a == b)
+        return 0;
+
+    const char* a_str = a ? a : "";
+    const char* b_str = b ? b : "";
+    
+    // Manual case-insensitive comparison (portable)
+    while (*a_str && *b_str) {
+        char ca = (char)tolower((unsigned char)*a_str);
+        char cb = (char)tolower((unsigned char)*b_str);
+        if (ca != cb) {
+            return ca - cb;
+        }
+        a_str++;
+        b_str++;
+    }
+    
+    return (unsigned char)tolower((unsigned char)*a_str) - (unsigned char)tolower((unsigned char)*b_str);
+}
+
+DS_DEF size_t ds_hash(ds_string str) {
+    if (!str)
+        return 0;
+    
+    // FNV-1a hash algorithm
+    const size_t FNV_PRIME = sizeof(size_t) == 8 ? 1099511628211ULL : 16777619U;
+    const size_t FNV_OFFSET_BASIS = sizeof(size_t) == 8 ? 14695981039346656037ULL : 2166136261U;
+    
+    size_t hash = FNV_OFFSET_BASIS;
+    size_t len = ds_length(str);
+    
+    for (size_t i = 0; i < len; i++) {
+        hash ^= (unsigned char)str[i];
+        hash *= FNV_PRIME;
+    }
+    
+    return hash;
+}
+
 DS_DEF int ds_find(ds_string str, const char* needle) {
     if (!str || !needle)
         return -1;
 
     const char* found = strstr(str, needle);
     return found ? (int)(found - str) : -1;
+}
+
+DS_DEF int ds_find_last(ds_string str, const char* needle) {
+    if (!str || !needle)
+        return -1;
+    
+    size_t needle_len = strlen(needle);
+    if (needle_len == 0)
+        return 0;  // Empty string found at beginning
+    
+    size_t str_len = ds_length(str);
+    if (needle_len > str_len)
+        return -1;
+    
+    // Search backwards from the end
+    for (size_t i = str_len - needle_len; i != SIZE_MAX; i--) {
+        if (memcmp(str + i, needle, needle_len) == 0) {
+            return (int)i;
+        }
+    }
+    
+    return -1;
+}
+
+DS_DEF int ds_contains(ds_string str, const char* needle) {
+    return ds_find(str, needle) != -1;
 }
 
 DS_DEF int ds_starts_with(ds_string str, const char* prefix) {
@@ -1045,6 +1195,42 @@ DS_DEF ds_string ds_repeat(ds_string str, size_t times) {
     return result;
 }
 
+DS_DEF ds_string ds_truncate(ds_string str, size_t max_length, const char* ellipsis) {
+    if (!str) return NULL;
+    
+    size_t str_len = ds_length(str);
+    if (str_len <= max_length) {
+        return ds_retain(str);  // No truncation needed
+    }
+    
+    size_t ellipsis_len = ellipsis ? strlen(ellipsis) : 0;
+    if (max_length < ellipsis_len) {
+        // Max length is too small for ellipsis, just truncate without ellipsis
+        return ds_substring(str, 0, max_length);
+    }
+    
+    if (ellipsis_len == 0) {
+        // No ellipsis, just truncate
+        return ds_substring(str, 0, max_length);
+    }
+    
+    // Use builder for efficient construction
+    ds_stringbuilder sb = ds_builder_create_with_capacity(max_length + ellipsis_len);
+    
+    // Add truncated part
+    size_t truncate_at = max_length - ellipsis_len;
+    ds_string truncated_part = ds_substring(str, 0, truncate_at);
+    ds_builder_append_string(&sb, truncated_part);
+    ds_release(&truncated_part);
+    
+    // Add ellipsis
+    ds_builder_append(&sb, ellipsis);
+    
+    ds_string result = ds_builder_to_string(&sb);
+    ds_builder_destroy(&sb);
+    return result;
+}
+
 DS_DEF ds_string ds_reverse(ds_string str) {
     if (!str) return NULL;
     
@@ -1197,24 +1383,121 @@ DS_DEF void ds_free_split_result(ds_string* array, size_t count) {
 DS_DEF ds_string ds_format(const char* fmt, ...) {
     if (!fmt) return NULL;
     
-    va_list args, args_copy;
+    va_list args;
     va_start(args, fmt);
+    ds_string result = ds_format_v(fmt, args);
+    va_end(args);
+    
+    return result;
+}
+
+DS_DEF ds_string ds_format_v(const char* fmt, va_list args) {
+    if (!fmt) return NULL;
     
     // Get required size
+    va_list args_copy;
     va_copy(args_copy, args);
     int size = vsnprintf(NULL, 0, fmt, args_copy);
     va_end(args_copy);
     
     if (size < 0) {
-        va_end(args);
         return NULL;
     }
     
     // Allocate and format
     ds_string result = ds_alloc(size);
     vsnprintf(result, size + 1, fmt, args);
-    va_end(args);
     
+    return result;
+}
+
+DS_DEF ds_string ds_escape_json(ds_string str) {
+    if (!str) return NULL;
+    
+    size_t len = ds_length(str);
+    if (len == 0) return ds_retain(str);
+    
+    // Use builder with reasonable initial capacity (assume some escaping needed)
+    ds_stringbuilder sb = ds_builder_create_with_capacity(len * 2);
+    
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)str[i];
+        
+        switch (c) {
+            case '"':  ds_builder_append(&sb, "\\\""); break;
+            case '\\': ds_builder_append(&sb, "\\\\"); break;
+            case '\b': ds_builder_append(&sb, "\\b"); break;
+            case '\f': ds_builder_append(&sb, "\\f"); break;
+            case '\n': ds_builder_append(&sb, "\\n"); break;
+            case '\r': ds_builder_append(&sb, "\\r"); break;
+            case '\t': ds_builder_append(&sb, "\\t"); break;
+            default:
+                if (c < 0x20) {
+                    // Control characters - escape as \uXXXX
+                    ds_string escaped = ds_format("\\u%04x", c);
+                    ds_builder_append_string(&sb, escaped);
+                    ds_release(&escaped);
+                } else {
+                    ds_builder_append_char(&sb, c);
+                }
+                break;
+        }
+    }
+    
+    ds_string result = ds_builder_to_string(&sb);
+    ds_builder_destroy(&sb);
+    return result;
+}
+
+DS_DEF ds_string ds_unescape_json(ds_string str) {
+    if (!str) return NULL;
+    
+    size_t len = ds_length(str);
+    if (len == 0) return ds_retain(str);
+    
+    ds_stringbuilder sb = ds_builder_create_with_capacity(len);
+    
+    for (size_t i = 0; i < len; i++) {
+        if (str[i] == '\\' && i + 1 < len) {
+            switch (str[i + 1]) {
+                case '"':  ds_builder_append_char(&sb, '"'); i++; break;
+                case '\\': ds_builder_append_char(&sb, '\\'); i++; break;
+                case '/':  ds_builder_append_char(&sb, '/'); i++; break;
+                case 'b':  ds_builder_append_char(&sb, '\b'); i++; break;
+                case 'f':  ds_builder_append_char(&sb, '\f'); i++; break;
+                case 'n':  ds_builder_append_char(&sb, '\n'); i++; break;
+                case 'r':  ds_builder_append_char(&sb, '\r'); i++; break;
+                case 't':  ds_builder_append_char(&sb, '\t'); i++; break;
+                case 'u':
+                    // Unicode escape sequence \uXXXX
+                    if (i + 5 < len) {
+                        char hex[5] = {str[i+2], str[i+3], str[i+4], str[i+5], '\0'};
+                        char* endptr;
+                        unsigned long codepoint = strtoul(hex, &endptr, 16);
+                        if (endptr == hex + 4) {  // Valid 4-digit hex
+                            ds_builder_append_char(&sb, (uint32_t)codepoint);
+                            i += 5;
+                        } else {
+                            // Invalid escape, keep as-is
+                            ds_builder_append_char(&sb, str[i]);
+                        }
+                    } else {
+                        // Incomplete escape at end of string
+                        ds_builder_append_char(&sb, str[i]);
+                    }
+                    break;
+                default:
+                    // Unknown escape, keep both characters
+                    ds_builder_append_char(&sb, str[i]);
+                    break;
+            }
+        } else {
+            ds_builder_append_char(&sb, str[i]);
+        }
+    }
+    
+    ds_string result = ds_builder_to_string(&sb);
+    ds_builder_destroy(&sb);
     return result;
 }
 
@@ -1374,7 +1657,7 @@ static int ds_sb_ensure_unique(ds_stringbuilder* sb) {
         return 0;
 
     ds_internal* meta = ds_meta(sb->data);
-    if (meta->refcount <= 1) {
+    if (DS_ATOMIC_LOAD(&meta->refcount) <= 1) {
         return 1; // Already unique
     }
 
@@ -1408,7 +1691,7 @@ DS_DEF ds_stringbuilder ds_builder_create_with_capacity(size_t capacity) {
     DS_ASSERT(block && "Memory allocation failed");
 
     ds_internal* meta = (ds_internal*)block;
-    meta->refcount = 1;
+    DS_ATOMIC_STORE(&meta->refcount, 1);
     meta->length = 0;
 
     sb.data = (char*)block + sizeof(ds_internal);

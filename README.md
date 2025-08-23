@@ -283,7 +283,21 @@ make
 
 ## Version History
 
-### v0.1.0 (Current)
+### v0.2.0 (Current)
+
+- **Added**: Atomic reference counting support (`DS_ATOMIC_REFCOUNT`) for safe concurrent reference sharing
+- **Added**: `ds_contains()` - clean boolean check for substring presence
+- **Added**: `ds_find_last()` - find last occurrence of substring
+- **Added**: `ds_hash()` - FNV-1a hash function for use in hash tables
+- **Added**: `ds_compare_ignore_case()` - case-insensitive string comparison
+- **Added**: `ds_truncate()` - smart truncation with optional ellipsis
+- **Added**: `ds_format_v()` - va_list version of ds_format for wrapper functions
+- **Added**: `ds_escape_json()` / `ds_unescape_json()` - JSON string escaping/unescaping
+- **Removed**: Version macros (not needed for single-header libraries)
+- **Improved**: All complex string building operations now use StringBuilder internally for efficiency
+- **Documentation**: Added CLAUDE.md for AI assistance and comprehensive usage examples
+
+### v0.1.0
 
 - **Added**: Version macros (`DS_VERSION_MAJOR`, `DS_VERSION_MINOR`, `DS_VERSION_PATCH`, `DS_VERSION_STRING`)
 - **Added**: Programmatic version checking with `DS_VERSION` macro
