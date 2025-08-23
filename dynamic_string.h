@@ -675,16 +675,13 @@ DS_DEF ds_string ds_new(const char* text) {
 DS_DEF ds_string ds_create_length(const char* text, size_t length) {
     DS_ASSERT(text && "ds_create_length: text cannot be NULL");
     
-    ds_string str = ds_alloc(length);
+    size_t text_len = strlen(text);
+    size_t actual_len = text_len < length ? text_len : length;
+    
+    ds_string str = ds_alloc(actual_len);
 
-    if (length > 0) {
-        size_t text_len = strlen(text);
-        size_t copy_len = text_len < length ? text_len : length;
-        memcpy(str, text, copy_len);
-        // Zero out remaining bytes if length > text_len
-        if (length > text_len) {
-            memset(str + text_len, 0, length - text_len);
-        }
+    if (actual_len > 0) {
+        memcpy(str, text, actual_len);
     }
 
     return str;

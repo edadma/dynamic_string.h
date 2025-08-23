@@ -624,21 +624,18 @@ void test_create_with_length(void) {
     ds_string zero_length = ds_create_length("Test", 0);
     TEST_ASSERT_TRUE(ds_is_empty(zero_length));
     
-    // Test NULL input - creates empty string of given length
-    ds_string null_input = ds_create_length(NULL, 5);
-    TEST_ASSERT_NOT_NULL(null_input);
-    TEST_ASSERT_EQUAL_UINT(5, ds_length(null_input));
+    // ds_create_length(NULL, 5) should assert - not testing this case
     
-    // Test length longer than actual string (copies exactly the specified length)
+    // Test length longer than actual string (uses shorter length)
     ds_string longer = ds_create_length("Hi", 100);
     TEST_ASSERT_NOT_NULL(longer);
-    TEST_ASSERT_EQUAL_UINT(100, ds_length(longer));
+    TEST_ASSERT_EQUAL_UINT(2, ds_length(longer));  // Only copies "Hi" 
+    TEST_ASSERT_EQUAL_STRING("Hi", longer);
     
     // Cleanup
     ds_release(&partial);
     ds_release(&with_null);
     ds_release(&zero_length);
-    ds_release(&null_input);
     ds_release(&longer);
 }
 
@@ -1273,9 +1270,8 @@ void test_ds_create_length(void) {
     TEST_ASSERT_EQUAL_UINT(5, ds_length(str1));
     
     ds_string str2 = ds_create_length("Test", 10);  // Length longer than input
-    TEST_ASSERT_EQUAL_UINT(10, ds_length(str2));  // Length is as requested
-    // Should contain "Test" followed by zeros
-    TEST_ASSERT_EQUAL_INT(0, memcmp(str2, "Test\0\0\0\0\0\0", 10));
+    TEST_ASSERT_EQUAL_UINT(4, ds_length(str2));  // Length is min(source_len, requested)
+    TEST_ASSERT_EQUAL_STRING("Test", str2);
     
     // ds_create_length(NULL, 5) should assert - not testing this case
     
