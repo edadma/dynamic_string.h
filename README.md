@@ -283,7 +283,15 @@ make
 
 ## Version History
 
-### v0.2.0 (Current)
+### v0.2.1 (Current)
+- **Critical Fix**: Buffer overflow vulnerability in `ds_create_length()` - now correctly handles requested length vs source string length
+- **Critical Fix**: Segmentation fault in test suite caused by dangerous NULL parameter testing
+- **Security**: Added comprehensive NULL parameter validation with assertions for `ds_create_length()`, `ds_prepend()`, `ds_insert()`, `ds_substring()`, `ds_replace()`, and `ds_replace_all()`
+- **Fixed**: `ds_insert()` beyond-bounds behavior now inserts at string end instead of returning unchanged
+- **Testing**: Corrected 6 failing tests that had incorrect expectations, all 73 tests now pass
+- **API Safety**: Functions now fail fast with clear assertion messages instead of silent undefined behavior
+
+### v0.2.0
 
 - **Added**: Atomic reference counting support (`DS_ATOMIC_REFCOUNT`) for safe concurrent reference sharing
 - **Added**: `ds_contains()` - clean boolean check for substring presence
