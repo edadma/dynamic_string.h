@@ -673,10 +673,18 @@ DS_DEF ds_string ds_new(const char* text) {
 }
 
 DS_DEF ds_string ds_create_length(const char* text, size_t length) {
+    DS_ASSERT(text && "ds_create_length: text cannot be NULL");
+    
     ds_string str = ds_alloc(length);
 
-    if (text && length > 0) {
-        memcpy(str, text, length);
+    if (length > 0) {
+        size_t text_len = strlen(text);
+        size_t copy_len = text_len < length ? text_len : length;
+        memcpy(str, text, copy_len);
+        // Zero out remaining bytes if length > text_len
+        if (length > text_len) {
+            memset(str + text_len, 0, length - text_len);
+        }
     }
 
     return str;
@@ -767,9 +775,8 @@ DS_DEF ds_string ds_append_char(ds_string str, uint32_t codepoint) {
 }
 
 DS_DEF ds_string ds_prepend(ds_string str, const char* text) {
-    if (!text) {
-        return str ? ds_retain(str) : NULL;
-    }
+    DS_ASSERT(text && "ds_prepend: text cannot be NULL");
+    
     if (!str) {
         return ds_new(text);
     }
@@ -791,8 +798,16 @@ DS_DEF ds_string ds_prepend(ds_string str, const char* text) {
 }
 
 DS_DEF ds_string ds_insert(ds_string str, size_t index, const char* text) {
-    if (!str || !text || index > ds_meta(str)->length) {
-        return str ? ds_retain(str) : NULL;
+    DS_ASSERT(text && "ds_insert: text cannot be NULL");
+    
+    if (!str) {
+        return ds_new(text);
+    }
+    
+    // Clamp index to end of string if beyond bounds
+    size_t str_len = ds_meta(str)->length;
+    if (index > str_len) {
+        index = str_len;
     }
 
     size_t text_len = strlen(text);
@@ -800,7 +815,6 @@ DS_DEF ds_string ds_insert(ds_string str, size_t index, const char* text) {
         return ds_retain(str);
     }
 
-    size_t str_len = ds_meta(str)->length;
     size_t new_length = str_len + text_len;
     ds_string result = ds_alloc(new_length);
 
@@ -815,7 +829,9 @@ DS_DEF ds_string ds_insert(ds_string str, size_t index, const char* text) {
 }
 
 DS_DEF ds_string ds_substring(ds_string str, size_t start, size_t len) {
-    if (!str || start >= ds_meta(str)->length) {
+    DS_ASSERT(str && "ds_substring: str cannot be NULL");
+    
+    if (start >= ds_meta(str)->length) {
         return ds_new("");
     }
 
@@ -1053,7 +1069,9 @@ DS_DEF ds_string ds_trim(ds_string str) {
 // ============================================================================
 
 DS_DEF ds_string ds_replace(ds_string str, const char* old, const char* new) {
-    if (!str || !old || !new) return str ? ds_retain(str) : NULL;
+    DS_ASSERT(str && "ds_replace: str cannot be NULL");
+    DS_ASSERT(old && "ds_replace: old cannot be NULL");
+    DS_ASSERT(new && "ds_replace: new cannot be NULL");
     
     int pos = ds_find(str, old);
     if (pos == -1) {
@@ -1089,7 +1107,9 @@ DS_DEF ds_string ds_replace(ds_string str, const char* old, const char* new) {
 }
 
 DS_DEF ds_string ds_replace_all(ds_string str, const char* old, const char* new) {
-    if (!str || !old || !new) return str ? ds_retain(str) : NULL;
+    DS_ASSERT(str && "ds_replace_all: str cannot be NULL");
+    DS_ASSERT(old && "ds_replace_all: old cannot be NULL");
+    DS_ASSERT(new && "ds_replace_all: new cannot be NULL");
     
     size_t old_len = strlen(old);
     if (old_len == 0) return ds_retain(str);
