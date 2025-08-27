@@ -120,7 +120,7 @@ extern "C" {
  *                  ds_string points here
  *
  * @note Use directly with printf, strcmp, fopen, etc. - no conversion needed!
- * @note NULL represents an invalid/empty string handle
+ * @warning NULL ds_string parameters cause assertion failures - all functions require valid strings
  */
 typedef char* ds_string;
 
@@ -132,7 +132,7 @@ typedef char* ds_string;
 
 /**
  * @brief Create a new string from a C string
- * @param text Null-terminated C string to copy (may be NULL)
+ * @param text Null-terminated C string to copy (must not be NULL)
  * @return New ds_string instance, or NULL on failure
  * @since 0.0.1
  * 
@@ -157,7 +157,7 @@ DS_DEF ds_string ds_create_length(const char* text, size_t length);
 
 /**
  * @brief Increment reference count and return shared handle
- * @param str String to retain (may be NULL)
+ * @param str String to retain (must not be NULL)
  * @return New handle to the same string data
  */
 DS_DEF ds_string ds_retain(ds_string str);
@@ -174,8 +174,8 @@ DS_DEF void ds_release(ds_string* str);
 
 /**
  * @brief Append text to a string
- * @param str Source string (may be NULL)
- * @param text Text to append (may be NULL)
+ * @param str Source string (must not be NULL)
+ * @param text Text to append (must not be NULL)
  * @return New string with appended text, or NULL on failure
  */
 DS_DEF ds_string ds_append(ds_string str, const char* text);
@@ -236,15 +236,15 @@ DS_DEF ds_string ds_join(ds_string* strings, size_t count, const char* separator
 // Utility functions (read-only)
 /**
  * @brief Get the length of a string in bytes
- * @param str String to measure (may be NULL)
- * @return Length in bytes, or 0 if str is NULL
+ * @param str String to measure (must not be NULL)
+ * @return Length in bytes
  */
 DS_DEF size_t ds_length(ds_string str);
 
 /**
  * @brief Compare two strings lexicographically
- * @param a First string (may be NULL)
- * @param b Second string (may be NULL)
+ * @param a First string (must not be NULL)
+ * @param b Second string (must not be NULL)
  * @return <0 if a < b, 0 if a == b, >0 if a > b
  */
 DS_DEF int ds_compare(ds_string a, ds_string b);
@@ -656,18 +656,29 @@ static void ds_dealloc(ds_string str) {
 // CORE STRING FUNCTIONS
 // ============================================================================
 
-DS_DEF size_t ds_length(ds_string str) { return str ? ds_meta(str)->length : 0; }
+DS_DEF size_t ds_length(ds_string str) {
+    DS_ASSERT(str && "ds_length: str cannot be NULL");
+    return ds_meta(str)->length;
+}
 
-DS_DEF size_t ds_refcount(ds_string str) { return str ? DS_ATOMIC_LOAD(&ds_meta(str)->refcount) : 0; }
+DS_DEF size_t ds_refcount(ds_string str) {
+    DS_ASSERT(str && "ds_refcount: str cannot be NULL");
+    return DS_ATOMIC_LOAD(&ds_meta(str)->refcount);
+}
 
-DS_DEF int ds_is_shared(ds_string str) { return str && DS_ATOMIC_LOAD(&ds_meta(str)->refcount) > 1; }
+DS_DEF int ds_is_shared(ds_string str) {
+    DS_ASSERT(str && "ds_is_shared: str cannot be NULL");
+    return DS_ATOMIC_LOAD(&ds_meta(str)->refcount) > 1;
+}
 
-DS_DEF int ds_is_empty(ds_string str) { return !str || ds_meta(str)->length == 0; }
+DS_DEF int ds_is_empty(ds_string str) {
+    DS_ASSERT(str && "ds_is_empty: str cannot be NULL");
+    return ds_meta(str)->length == 0;
+}
 
 DS_DEF ds_string ds_new(const char* text) {
-    if (!text)
-        return NULL;
-
+    DS_ASSERT(text && "ds_new: text cannot be NULL");
+    
     size_t len = strlen(text);
     return ds_create_length(text, len);
 }
@@ -688,9 +699,8 @@ DS_DEF ds_string ds_create_length(const char* text, size_t length) {
 }
 
 DS_DEF ds_string ds_retain(ds_string str) {
-    if (str) {
-        DS_ATOMIC_FETCH_ADD(&ds_meta(str)->refcount, 1);
-    }
+    DS_ASSERT(str && "ds_retain: str cannot be NULL");
+    DS_ATOMIC_FETCH_ADD(&ds_meta(str)->refcount, 1);
     return str;
 }
 
@@ -706,12 +716,8 @@ DS_DEF void ds_release(ds_string* str) {
 }
 
 DS_DEF ds_string ds_append(ds_string str, const char* text) {
-    if (!text) {
-        return str ? ds_retain(str) : NULL;
-    }
-    if (!str) {
-        return ds_new(text);
-    }
+    DS_ASSERT(str && "ds_append: str cannot be NULL");
+    DS_ASSERT(text && "ds_append: text cannot be NULL");
 
     size_t text_len = strlen(text);
     if (text_len == 0) {
@@ -761,6 +767,8 @@ static size_t ds_encode_utf8(uint32_t codepoint, char* buffer) {
 }
 
 DS_DEF ds_string ds_append_char(ds_string str, uint32_t codepoint) {
+    DS_ASSERT(str && "ds_append_char: str cannot be NULL");
+    
     char utf8_buffer[4];
     size_t bytes_needed = ds_encode_utf8(codepoint, utf8_buffer);
 
@@ -772,11 +780,8 @@ DS_DEF ds_string ds_append_char(ds_string str, uint32_t codepoint) {
 }
 
 DS_DEF ds_string ds_prepend(ds_string str, const char* text) {
+    DS_ASSERT(str && "ds_prepend: str cannot be NULL");
     DS_ASSERT(text && "ds_prepend: text cannot be NULL");
-    
-    if (!str) {
-        return ds_new(text);
-    }
 
     size_t text_len = strlen(text);
     if (text_len == 0) {
@@ -795,11 +800,8 @@ DS_DEF ds_string ds_prepend(ds_string str, const char* text) {
 }
 
 DS_DEF ds_string ds_insert(ds_string str, size_t index, const char* text) {
+    DS_ASSERT(str && "ds_insert: str cannot be NULL");
     DS_ASSERT(text && "ds_insert: text cannot be NULL");
-    
-    if (!str) {
-        return ds_new(text);
-    }
     
     // Clamp index to end of string if beyond bounds
     size_t str_len = ds_meta(str)->length;
@@ -841,12 +843,8 @@ DS_DEF ds_string ds_substring(ds_string str, size_t start, size_t len) {
 }
 
 DS_DEF ds_string ds_concat(ds_string a, ds_string b) {
-    if (!a && !b)
-        return NULL;
-    if (!a)
-        return ds_retain(b);
-    if (!b)
-        return ds_retain(a);
+    DS_ASSERT(a && "ds_concat: a cannot be NULL");
+    DS_ASSERT(b && "ds_concat: b cannot be NULL");
 
     size_t new_length = ds_meta(a)->length + ds_meta(b)->length;
     ds_string result = ds_alloc(new_length);
@@ -858,20 +856,22 @@ DS_DEF ds_string ds_concat(ds_string a, ds_string b) {
 }
 
 DS_DEF ds_string ds_join(ds_string* strings, size_t count, const char* separator) {
-    if (!strings || count == 0) {
+    DS_ASSERT(strings && "ds_join: strings cannot be NULL");
+    
+    if (count == 0) {
         return ds_new("");
     }
 
     if (count == 1) {
-        return strings[0] ? ds_retain(strings[0]) : ds_new("");
+        DS_ASSERT(strings[0] && "ds_join: strings[0] cannot be NULL");
+        return ds_retain(strings[0]);
     }
 
     ds_stringbuilder sb = ds_builder_create();
 
     for (size_t i = 0; i < count; i++) {
-        if (strings[i]) {
-            ds_builder_append_string(&sb, strings[i]);
-        }
+        DS_ASSERT(strings[i] && "ds_join: strings[i] cannot be NULL");
+        ds_builder_append_string(&sb, strings[i]);
 
         if (i < count - 1 && separator) {
             ds_builder_append(&sb, separator);
@@ -884,23 +884,26 @@ DS_DEF ds_string ds_join(ds_string* strings, size_t count, const char* separator
 }
 
 DS_DEF int ds_compare(ds_string a, ds_string b) {
+    DS_ASSERT(a && "ds_compare: a cannot be NULL");
+    DS_ASSERT(b && "ds_compare: b cannot be NULL");
+    
     // Fast path: same object
     if (a == b)
         return 0;
 
-    const char* a_str = a ? a : "";
-    const char* b_str = b ? b : "";
-
-    return strcmp(a_str, b_str);
+    return strcmp(a, b);
 }
 
 DS_DEF int ds_compare_ignore_case(ds_string a, ds_string b) {
+    DS_ASSERT(a && "ds_compare_ignore_case: a cannot be NULL");
+    DS_ASSERT(b && "ds_compare_ignore_case: b cannot be NULL");
+    
     // Fast path: same object
     if (a == b)
         return 0;
 
-    const char* a_str = a ? a : "";
-    const char* b_str = b ? b : "";
+    const char* a_str = a;
+    const char* b_str = b;
     
     // Manual case-insensitive comparison (portable)
     while (*a_str && *b_str) {
@@ -917,8 +920,7 @@ DS_DEF int ds_compare_ignore_case(ds_string a, ds_string b) {
 }
 
 DS_DEF size_t ds_hash(ds_string str) {
-    if (!str)
-        return 0;
+    DS_ASSERT(str && "ds_hash: str cannot be NULL");
     
     // FNV-1a hash algorithm
     const size_t FNV_PRIME = sizeof(size_t) == 8 ? 1099511628211ULL : 16777619U;
@@ -936,16 +938,16 @@ DS_DEF size_t ds_hash(ds_string str) {
 }
 
 DS_DEF int ds_find(ds_string str, const char* needle) {
-    if (!str || !needle)
-        return -1;
+    DS_ASSERT(str && "ds_find: str cannot be NULL");
+    DS_ASSERT(needle && "ds_find: needle cannot be NULL");
 
     const char* found = strstr(str, needle);
     return found ? (int)(found - str) : -1;
 }
 
 DS_DEF int ds_find_last(ds_string str, const char* needle) {
-    if (!str || !needle)
-        return -1;
+    DS_ASSERT(str && "ds_find_last: str cannot be NULL");
+    DS_ASSERT(needle && "ds_find_last: needle cannot be NULL");
     
     size_t needle_len = strlen(needle);
     if (needle_len == 0)
@@ -966,12 +968,14 @@ DS_DEF int ds_find_last(ds_string str, const char* needle) {
 }
 
 DS_DEF int ds_contains(ds_string str, const char* needle) {
+    DS_ASSERT(str && "ds_contains: str cannot be NULL");
+    DS_ASSERT(needle && "ds_contains: needle cannot be NULL");
     return ds_find(str, needle) != -1;
 }
 
 DS_DEF int ds_starts_with(ds_string str, const char* prefix) {
-    if (!str || !prefix)
-        return 0;
+    DS_ASSERT(str && "ds_starts_with: str cannot be NULL");
+    DS_ASSERT(prefix && "ds_starts_with: prefix cannot be NULL");
 
     size_t prefix_len = strlen(prefix);
     if (prefix_len > ds_meta(str)->length)
@@ -981,8 +985,8 @@ DS_DEF int ds_starts_with(ds_string str, const char* prefix) {
 }
 
 DS_DEF int ds_ends_with(ds_string str, const char* suffix) {
-    if (!str || !suffix)
-        return 0;
+    DS_ASSERT(str && "ds_ends_with: str cannot be NULL");
+    DS_ASSERT(suffix && "ds_ends_with: suffix cannot be NULL");
 
     size_t suffix_len = strlen(suffix);
     size_t str_len = ds_meta(str)->length;
@@ -1001,7 +1005,7 @@ static int ds_is_whitespace(char c) {
 }
 
 DS_DEF ds_string ds_trim_left(ds_string str) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_trim_left: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
@@ -1019,7 +1023,7 @@ DS_DEF ds_string ds_trim_left(ds_string str) {
 }
 
 DS_DEF ds_string ds_trim_right(ds_string str) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_trim_right: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
@@ -1037,7 +1041,7 @@ DS_DEF ds_string ds_trim_right(ds_string str) {
 }
 
 DS_DEF ds_string ds_trim(ds_string str) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_trim: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
@@ -1153,7 +1157,7 @@ DS_DEF ds_string ds_replace_all(ds_string str, const char* old, const char* new)
 #include <ctype.h>
 
 DS_DEF ds_string ds_to_upper(ds_string str) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_to_upper: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
@@ -1172,7 +1176,7 @@ DS_DEF ds_string ds_to_upper(ds_string str) {
 }
 
 DS_DEF ds_string ds_to_lower(ds_string str) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_to_lower: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
@@ -1195,7 +1199,8 @@ DS_DEF ds_string ds_to_lower(ds_string str) {
 // ============================================================================
 
 DS_DEF ds_string ds_repeat(ds_string str, size_t times) {
-    if (!str || times == 0) return ds_new("");
+    DS_ASSERT(str && "ds_repeat: str cannot be NULL");
+    if (times == 0) return ds_new("");
     if (times == 1) return ds_retain(str);
     
     size_t str_len = ds_length(str);
@@ -1213,7 +1218,7 @@ DS_DEF ds_string ds_repeat(ds_string str, size_t times) {
 }
 
 DS_DEF ds_string ds_truncate(ds_string str, size_t max_length, const char* ellipsis) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_truncate: str cannot be NULL");
     
     size_t str_len = ds_length(str);
     if (str_len <= max_length) {
@@ -1249,7 +1254,7 @@ DS_DEF ds_string ds_truncate(ds_string str, size_t max_length, const char* ellip
 }
 
 DS_DEF ds_string ds_reverse(ds_string str) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_reverse: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len <= 1) return ds_retain(str);
@@ -1279,7 +1284,7 @@ DS_DEF ds_string ds_reverse(ds_string str) {
 }
 
 DS_DEF ds_string ds_pad_left(ds_string str, size_t width, char pad) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_pad_left: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len >= width) return ds_retain(str);
@@ -1301,7 +1306,7 @@ DS_DEF ds_string ds_pad_left(ds_string str, size_t width, char pad) {
 }
 
 DS_DEF ds_string ds_pad_right(ds_string str, size_t width, char pad) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_pad_right: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len >= width) return ds_retain(str);
@@ -1327,8 +1332,10 @@ DS_DEF ds_string ds_pad_right(ds_string str, size_t width, char pad) {
 // ============================================================================
 
 DS_DEF ds_string* ds_split(ds_string str, const char* delimiter, size_t* count) {
+    DS_ASSERT(str && "ds_split: str cannot be NULL");
+    DS_ASSERT(delimiter && "ds_split: delimiter cannot be NULL");
+    
     if (count) *count = 0;
-    if (!str || !delimiter) return NULL;
     
     size_t delim_len = strlen(delimiter);
     if (delim_len == 0) {
@@ -1429,7 +1436,7 @@ DS_DEF ds_string ds_format_v(const char* fmt, va_list args) {
 }
 
 DS_DEF ds_string ds_escape_json(ds_string str) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_escape_json: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
@@ -1467,7 +1474,7 @@ DS_DEF ds_string ds_escape_json(ds_string str) {
 }
 
 DS_DEF ds_string ds_unescape_json(ds_string str) {
-    if (!str) return NULL;
+    DS_ASSERT(str && "ds_unescape_json: str cannot be NULL");
     
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
@@ -1568,17 +1575,12 @@ static uint32_t ds_decode_utf8_at(const char* data, size_t pos, size_t end, size
 }
 
 DS_DEF ds_codepoint_iter ds_codepoints(ds_string str) {
+    DS_ASSERT(str && "ds_codepoints: str cannot be NULL");
+    
     ds_codepoint_iter iter;
-
-    if (str) {
-        iter.data = str;
-        iter.pos = 0;
-        iter.end = ds_meta(str)->length;
-    } else {
-        iter.data = "";
-        iter.pos = 0;
-        iter.end = 0;
-    }
+    iter.data = str;
+    iter.pos = 0;
+    iter.end = ds_meta(str)->length;
 
     return iter;
 }
@@ -1602,8 +1604,7 @@ DS_DEF uint32_t ds_iter_next(ds_codepoint_iter* iter) {
 DS_DEF int ds_iter_has_next(const ds_codepoint_iter* iter) { return iter && iter->pos < iter->end; }
 
 DS_DEF size_t ds_codepoint_length(ds_string str) {
-    if (!str)
-        return 0;
+    DS_ASSERT(str && "ds_codepoint_length: str cannot be NULL");
 
     ds_codepoint_iter iter = ds_codepoints(str);
     size_t count = 0;
@@ -1616,8 +1617,7 @@ DS_DEF size_t ds_codepoint_length(ds_string str) {
 }
 
 DS_DEF uint32_t ds_codepoint_at(ds_string str, size_t index) {
-    if (!str)
-        return 0;
+    DS_ASSERT(str && "ds_codepoint_at: str cannot be NULL");
 
     ds_codepoint_iter iter = ds_codepoints(str);
     size_t current_index = 0;
