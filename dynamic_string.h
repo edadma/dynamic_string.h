@@ -1,7 +1,7 @@
 /**
  * @file dynamic_string.h
  * @brief Modern, efficient, single-file string library for C
- * @version 0.1.0
+ * @version 0.2.2
  * @date Aug 22, 2025
  *
  * @details

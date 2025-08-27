@@ -115,6 +115,34 @@ while ((cp = ds_iter_next(&iter)) != 0) {
 }
 ```
 
+## ⚠️ Error Handling
+
+**Important: NULL Parameter Validation**
+
+As of v0.2.2, all functions perform strict NULL parameter validation using assertions:
+
+```c
+// ✅ Valid usage
+ds_string str = ds_new("Hello");
+size_t len = ds_length(str);  // Works fine
+ds_release(&str);
+
+// ❌ Will trigger assertion failure
+size_t len = ds_length(NULL);  // Assertion: ds_length: str cannot be NULL
+ds_string result = ds_append(NULL, "text");  // Assertion: ds_append: str cannot be NULL
+```
+
+**Benefits:**
+- **Immediate error detection** - bugs are caught at the source
+- **Clear error messages** - assertions specify exactly which parameter is NULL
+- **Consistent behavior** - all functions handle NULL parameters the same way
+- **Development safety** - prevents silent failures and undefined behavior
+
+**Migration from older versions:**
+- Code that passes valid (non-NULL) parameters continues to work unchanged
+- Code that relied on graceful NULL handling will now trigger assertions
+- Use a debugger or assertion handler to catch and fix NULL parameter issues
+
 ## Usage Patterns
 
 ### Basic Usage
@@ -283,7 +311,16 @@ make
 
 ## Version History
 
-### v0.2.1 (Current)
+### v0.2.2 (Current)
+- **BREAKING CHANGE**: All functions now assert on NULL `ds_string` parameters instead of handling them gracefully
+- **API Safety**: Consistent assertion-based parameter validation across entire API
+- **Error Detection**: NULL parameters now trigger immediate assertion failures with descriptive error messages
+- **Testing**: Implemented comprehensive assertion testing framework with signal handling
+- **Documentation**: Updated all function documentation to specify parameters "must not be NULL"
+- **Compatibility**: Maintains 100% backward compatibility for valid (non-NULL) usage patterns
+- **Testing**: All 71 tests pass with new assertion-based error handling
+
+### v0.2.1
 - **Critical Fix**: Buffer overflow vulnerability in `ds_create_length()` - now correctly handles requested length vs source string length
 - **Critical Fix**: Segmentation fault in test suite caused by dangerous NULL parameter testing
 - **Security**: Added comprehensive NULL parameter validation with assertions for `ds_create_length()`, `ds_prepend()`, `ds_insert()`, `ds_substring()`, `ds_replace()`, and `ds_replace_all()`
