@@ -84,15 +84,19 @@ ds_string modified = ds_append(base, " World");
 ### ⚡ Efficient StringBuilder
 
 - **In-place construction** - builds strings efficiently without intermediate allocations
-- **Single-use design** - simple and memory-safe
+- **Reference-counted** - safe sharing between functions
+- **Rich API** - formatting, numeric operations, and content manipulation
 - **Automatic growth** - handles capacity management
 
 ```c
 ds_builder sb = ds_builder_create();
+ds_builder_append_format(sb, "Processing %d items:\n", 1000);
 for (int i = 0; i < 1000; i++) {
-    ds_builder_append(&sb, "data ");
+    ds_builder_append_format(sb, "Item %d: ", i);
+    ds_builder_append_double(sb, i * 3.14, 2);
+    ds_builder_append(sb, "\n");
 }
-ds_string result = ds_builder_to_string(&sb);  // sb becomes consumed
+ds_string result = ds_builder_to_string(sb);  // sb becomes consumed
 ds_builder_release(&sb);  // Always safe to call
 ```
 
@@ -249,22 +253,41 @@ int ds_is_empty(ds_string str);
 // StringBuilder creation and management
 ds_builder ds_builder_create(void);
 ds_builder ds_builder_create_with_capacity(size_t capacity);
+ds_builder ds_builder_retain(ds_builder sb);
 void ds_builder_release(ds_builder* sb);
 
-// Building operations (modify in-place)
-int ds_builder_append(ds_builder* sb, const char* text);
-int ds_builder_append_char(ds_builder* sb, uint32_t codepoint);
-int ds_builder_append_string(ds_builder* sb, ds_string str);
-int ds_builder_insert(ds_builder* sb, size_t index, const char* text);
-void ds_builder_clear(ds_builder* sb);
+// Basic building operations (modify in-place)
+int ds_builder_append(ds_builder sb, const char* text);
+int ds_builder_append_char(ds_builder sb, uint32_t codepoint);
+int ds_builder_append_string(ds_builder sb, ds_string str);
+int ds_builder_insert(ds_builder sb, size_t index, const char* text);
+void ds_builder_clear(ds_builder sb);
+
+// Formatting functions (NEW in v0.3.1)
+int ds_builder_append_format(ds_builder sb, const char* fmt, ...);
+int ds_builder_append_format_v(ds_builder sb, const char* fmt, va_list args);
+
+// Numeric append functions (NEW in v0.3.1)
+int ds_builder_append_int(ds_builder sb, int value);
+int ds_builder_append_uint(ds_builder sb, unsigned int value);
+int ds_builder_append_long(ds_builder sb, long value);
+int ds_builder_append_double(ds_builder sb, double value, int precision);
+
+// Buffer operations (NEW in v0.3.1)
+int ds_builder_append_length(ds_builder sb, const char* text, size_t length);
+int ds_builder_prepend(ds_builder sb, const char* text);
+int ds_builder_replace_range(ds_builder sb, size_t start, size_t end, const char* replacement);
+
+// Content manipulation (NEW in v0.3.1)
+int ds_builder_remove_range(ds_builder sb, size_t start, size_t length);
 
 // Conversion (StringBuilder becomes consumed)
-ds_string ds_builder_to_string(ds_builder* sb);
+ds_string ds_builder_to_string(ds_builder sb);
 
 // Inspection
-size_t ds_builder_length(const ds_builder* sb);
-size_t ds_builder_capacity(const ds_builder* sb);
-const char* ds_builder_cstr(const ds_builder* sb);
+size_t ds_builder_length(ds_builder sb);
+size_t ds_builder_capacity(ds_builder sb);
+const char* ds_builder_cstr(ds_builder sb);
 ```
 
 ### Unicode Functions
@@ -311,7 +334,16 @@ make
 
 ## Version History
 
-### v0.3.0 (Current)
+### v0.3.1 (Current)
+- **Added**: `ds_builder_append_format()` and `ds_builder_append_format_v()` - Printf-style formatting directly into StringBuilder
+- **Added**: Numeric append functions: `ds_builder_append_int()`, `ds_builder_append_uint()`, `ds_builder_append_long()`, `ds_builder_append_double()`
+- **Added**: Buffer operations: `ds_builder_append_length()`, `ds_builder_prepend()`, `ds_builder_replace_range()`
+- **Added**: Content manipulation: `ds_builder_remove_range()`
+- **Documentation**: Complete Doxygen documentation for all new StringBuilder functions
+- **Documentation**: Added comprehensive unit tests for all new functions (83 total tests)
+- **Enhancement**: StringBuilder now supports advanced string building operations for more efficient construction
+
+### v0.3.0
 - **BREAKING CHANGE**: Renamed `ds_stringbuilder` to `ds_builder` for consistency
 - **BREAKING CHANGE**: `ds_builder` is now heap-allocated and reference-counted like `ds_string`
 - **BREAKING CHANGE**: Replaced `ds_builder_destroy()` with `ds_builder_release()` that sets pointer to NULL

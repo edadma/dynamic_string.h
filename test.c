@@ -1864,6 +1864,166 @@ void test_string_json_unescape(void) {
     ds_release(&unescaped4);
 }
 
+// ============================================================================
+// NEW STRINGBUILDER FUNCTIONS TESTS
+// ============================================================================
+
+void test_stringbuilder_formatting_functions(void) {
+    ds_builder sb = ds_builder_create();
+    
+    // Test ds_builder_append_format
+    TEST_ASSERT_TRUE(ds_builder_append(sb, "Count: "));
+    TEST_ASSERT_TRUE(ds_builder_append_format(sb, "%d items, %.2f%% complete", 42, 85.75));
+    TEST_ASSERT_EQUAL_STRING("Count: 42 items, 85.75% complete", ds_builder_cstr(sb));
+    
+    // Test empty format
+    ds_builder_clear(sb);
+    TEST_ASSERT_TRUE(ds_builder_append_format(sb, ""));
+    TEST_ASSERT_EQUAL_STRING("", ds_builder_cstr(sb));
+    
+    // Test with complex format
+    ds_builder_clear(sb);
+    TEST_ASSERT_TRUE(ds_builder_append_format(sb, "Hello %s, you are %d years old", "Alice", 25));
+    TEST_ASSERT_EQUAL_STRING("Hello Alice, you are 25 years old", ds_builder_cstr(sb));
+    
+    ds_builder_release(&sb);
+}
+
+void test_stringbuilder_numeric_functions(void) {
+    ds_builder sb = ds_builder_create();
+    
+    // Test int
+    TEST_ASSERT_TRUE(ds_builder_append_int(sb, -123));
+    TEST_ASSERT_EQUAL_STRING("-123", ds_builder_cstr(sb));
+    
+    TEST_ASSERT_TRUE(ds_builder_append(sb, ", "));
+    
+    // Test uint
+    TEST_ASSERT_TRUE(ds_builder_append_uint(sb, 456u));
+    TEST_ASSERT_EQUAL_STRING("-123, 456", ds_builder_cstr(sb));
+    
+    TEST_ASSERT_TRUE(ds_builder_append(sb, ", "));
+    
+    // Test long
+    TEST_ASSERT_TRUE(ds_builder_append_long(sb, -789L));
+    TEST_ASSERT_EQUAL_STRING("-123, 456, -789", ds_builder_cstr(sb));
+    
+    TEST_ASSERT_TRUE(ds_builder_append(sb, ", "));
+    
+    // Test double with precision
+    TEST_ASSERT_TRUE(ds_builder_append_double(sb, 3.14159, 2));
+    TEST_ASSERT_EQUAL_STRING("-123, 456, -789, 3.14", ds_builder_cstr(sb));
+    
+    // Test double with default precision
+    ds_builder_clear(sb);
+    TEST_ASSERT_TRUE(ds_builder_append_double(sb, 2.71828, -1));
+    TEST_ASSERT_EQUAL_STRING("2.718280", ds_builder_cstr(sb));
+    
+    ds_builder_release(&sb);
+}
+
+void test_stringbuilder_buffer_operations(void) {
+    ds_builder sb = ds_builder_create();
+    
+    // Test append_length
+    TEST_ASSERT_TRUE(ds_builder_append_length(sb, "Hello World!", 5));
+    TEST_ASSERT_EQUAL_STRING("Hello", ds_builder_cstr(sb));
+    
+    // Test prepend
+    TEST_ASSERT_TRUE(ds_builder_prepend(sb, "Say "));
+    TEST_ASSERT_EQUAL_STRING("Say Hello", ds_builder_cstr(sb));
+    
+    // Test replace_range - replace "Hello" with "Goodbye"
+    TEST_ASSERT_TRUE(ds_builder_replace_range(sb, 4, 9, "Goodbye"));
+    TEST_ASSERT_EQUAL_STRING("Say Goodbye", ds_builder_cstr(sb));
+    
+    // Test replace_range with shorter replacement
+    TEST_ASSERT_TRUE(ds_builder_replace_range(sb, 4, 11, "Hi"));
+    TEST_ASSERT_EQUAL_STRING("Say Hi", ds_builder_cstr(sb));
+    
+    // Test replace_range with longer replacement
+    TEST_ASSERT_TRUE(ds_builder_replace_range(sb, 4, 6, "Good Morning"));
+    TEST_ASSERT_EQUAL_STRING("Say Good Morning", ds_builder_cstr(sb));
+    
+    ds_builder_release(&sb);
+}
+
+void test_stringbuilder_content_manipulation(void) {
+    ds_builder sb = ds_builder_create();
+    
+    TEST_ASSERT_TRUE(ds_builder_append(sb, "Hello Beautiful World"));
+    
+    // Test remove_range
+    TEST_ASSERT_TRUE(ds_builder_remove_range(sb, 6, 10)); // Remove "Beautiful "
+    TEST_ASSERT_EQUAL_STRING("Hello World", ds_builder_cstr(sb));
+    
+    // Test remove_range at start
+    TEST_ASSERT_TRUE(ds_builder_remove_range(sb, 0, 6)); // Remove "Hello "
+    TEST_ASSERT_EQUAL_STRING("World", ds_builder_cstr(sb));
+    
+    // Test remove_range at end
+    TEST_ASSERT_TRUE(ds_builder_append(sb, " Test"));
+    TEST_ASSERT_TRUE(ds_builder_remove_range(sb, 5, 5)); // Remove " Test"
+    TEST_ASSERT_EQUAL_STRING("World", ds_builder_cstr(sb));
+    
+    // Test remove beyond bounds
+    TEST_ASSERT_TRUE(ds_builder_remove_range(sb, 3, 100)); // Remove "ld"
+    TEST_ASSERT_EQUAL_STRING("Wor", ds_builder_cstr(sb));
+    
+    // Test remove starting beyond bounds (should do nothing)
+    TEST_ASSERT_TRUE(ds_builder_remove_range(sb, 100, 5));
+    TEST_ASSERT_EQUAL_STRING("Wor", ds_builder_cstr(sb));
+    
+    ds_builder_release(&sb);
+}
+
+void test_stringbuilder_edge_cases(void) {
+    ds_builder sb = ds_builder_create();
+    
+    // Test with empty inputs
+    TEST_ASSERT_TRUE(ds_builder_append_length(sb, "test", 0));
+    TEST_ASSERT_EQUAL_STRING("", ds_builder_cstr(sb));
+    
+    TEST_ASSERT_TRUE(ds_builder_prepend(sb, ""));
+    TEST_ASSERT_EQUAL_STRING("", ds_builder_cstr(sb));
+    
+    // Test append_length with various lengths
+    TEST_ASSERT_TRUE(ds_builder_append_length(sb, "Hello World", 5));
+    TEST_ASSERT_EQUAL_STRING("Hello", ds_builder_cstr(sb));
+    
+    // Test replace_range with same start and end (insert operation)
+    TEST_ASSERT_TRUE(ds_builder_replace_range(sb, 5, 5, " There"));
+    TEST_ASSERT_EQUAL_STRING("Hello There", ds_builder_cstr(sb));
+    
+    // Test remove_range with zero length (should do nothing)
+    TEST_ASSERT_TRUE(ds_builder_remove_range(sb, 5, 0));
+    TEST_ASSERT_EQUAL_STRING("Hello There", ds_builder_cstr(sb));
+    
+    ds_builder_release(&sb);
+}
+
+void test_stringbuilder_combined_operations(void) {
+    ds_builder sb = ds_builder_create();
+    
+    // Build a complex string using various functions
+    TEST_ASSERT_TRUE(ds_builder_append(sb, "Number: "));
+    TEST_ASSERT_TRUE(ds_builder_append_int(sb, 42));
+    TEST_ASSERT_TRUE(ds_builder_prepend(sb, "Result: "));
+    TEST_ASSERT_TRUE(ds_builder_append_format(sb, ", Score: %.1f", 98.7));
+    
+    TEST_ASSERT_EQUAL_STRING("Result: Number: 42, Score: 98.7", ds_builder_cstr(sb));
+    
+    // Modify the string - replace "Number" (positions 8-13) with "Count"
+    TEST_ASSERT_TRUE(ds_builder_replace_range(sb, 8, 14, "Count"));
+    TEST_ASSERT_EQUAL_STRING("Result: Count: 42, Score: 98.7", ds_builder_cstr(sb));
+    
+    // Remove part of it - remove ", Score: 98.7"
+    TEST_ASSERT_TRUE(ds_builder_remove_range(sb, 17, 14));
+    TEST_ASSERT_EQUAL_STRING("Result: Count: 42", ds_builder_cstr(sb));
+    
+    ds_builder_release(&sb);
+}
+
 void test(void) {
     UNITY_BEGIN();
 
@@ -1967,6 +2127,14 @@ void test(void) {
     RUN_TEST(test_string_format_v);
     RUN_TEST(test_string_json_escape);
     RUN_TEST(test_string_json_unescape);
+
+    // New StringBuilder functions tests
+    RUN_TEST(test_stringbuilder_formatting_functions);
+    RUN_TEST(test_stringbuilder_numeric_functions);
+    RUN_TEST(test_stringbuilder_buffer_operations);
+    RUN_TEST(test_stringbuilder_content_manipulation);
+    RUN_TEST(test_stringbuilder_edge_cases);
+    RUN_TEST(test_stringbuilder_combined_operations);
 
     UNITY_END();
 }

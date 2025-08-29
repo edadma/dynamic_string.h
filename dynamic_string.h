@@ -1,8 +1,8 @@
 /**
  * @file dynamic_string.h
  * @brief Modern, efficient, single-file string library for C
- * @version 0.3.0
- * @date Aug 22, 2025
+ * @version 0.3.1
+ * @date Aug 29, 2025
  *
  * @details
  * A modern, efficient, single-file string library for C featuring:
@@ -43,6 +43,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 // Configuration macros (user can override before including)
 #ifndef DS_MALLOC
@@ -574,26 +575,520 @@ typedef struct ds_builder_struct {
 #endif
 } *ds_builder;
 
-// StringBuilder creation and management
+/**
+ * @defgroup builder_core StringBuilder Core Functions
+ * @brief Core StringBuilder creation, management and basic operations
+ * @{
+ */
+
+/**
+ * @brief Create a new StringBuilder with default capacity
+ * @return New StringBuilder instance, NULL on allocation failure
+ * @since 0.3.0
+ * 
+ * Creates a new StringBuilder with the default initial capacity.
+ * The StringBuilder must be released with ds_builder_release().
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello");
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_create_with_capacity() for custom capacity
+ * @see ds_builder_release() for cleanup
+ */
 DS_DEF ds_builder ds_builder_create(void);
+
+/**
+ * @brief Create a new StringBuilder with specified capacity
+ * @param capacity Initial capacity in bytes (minimum of 16 bytes)
+ * @return New StringBuilder instance, NULL on allocation failure
+ * @since 0.3.0
+ * 
+ * Creates a new StringBuilder with the specified initial capacity.
+ * If capacity is 0, uses the default initial capacity.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create_with_capacity(100);
+ * // StringBuilder can hold 100 bytes before reallocation
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_create() for default capacity
+ */
 DS_DEF ds_builder ds_builder_create_with_capacity(size_t capacity);
+
+/**
+ * @brief Increment the reference count of a StringBuilder
+ * @param sb StringBuilder to retain (must not be NULL)
+ * @return The same StringBuilder instance
+ * @since 0.3.0
+ * 
+ * Increases the reference count, allowing the StringBuilder to be
+ * safely shared between multiple owners.
+ * 
+ * @code
+ * ds_builder original = ds_builder_create();
+ * ds_builder shared = ds_builder_retain(original);
+ * // Both original and shared point to the same StringBuilder
+ * ds_builder_release(&original);
+ * ds_builder_release(&shared);
+ * @endcode
+ * 
+ * @see ds_builder_release() for decrementing reference count
+ */
 DS_DEF ds_builder ds_builder_retain(ds_builder sb);
+
+/**
+ * @brief Decrement reference count and release StringBuilder when it reaches zero
+ * @param sb Pointer to StringBuilder (set to NULL after release)
+ * @since 0.3.0
+ * 
+ * Decrements the reference count and frees the StringBuilder when the
+ * count reaches zero. The pointer is set to NULL after release.
+ * Safe to call with NULL or already-released StringBuilder.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_release(&sb);
+ * // sb is now NULL
+ * ds_builder_release(&sb); // Safe - does nothing
+ * @endcode
+ * 
+ * @see ds_builder_retain() for incrementing reference count
+ */
 DS_DEF void ds_builder_release(ds_builder* sb);
 
-// Mutable operations (modify the builder in-place)
+/**
+ * @brief Append null-terminated text to StringBuilder
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param text Text to append (must not be NULL)
+ * @return 1 on success, 0 on failure
+ * @since 0.3.0
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello");
+ * ds_builder_append(sb, " World");
+ * // sb now contains "Hello World"
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_append_length() for partial string appending
+ * @see ds_builder_append_string() for appending ds_string
+ */
 DS_DEF int ds_builder_append(ds_builder sb, const char* text);
+
+/**
+ * @brief Append a Unicode codepoint to StringBuilder
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param codepoint Unicode codepoint to append
+ * @return 1 on success, 0 on failure
+ * @since 0.3.0
+ * 
+ * Appends the codepoint as UTF-8 encoded bytes. Invalid codepoints
+ * (>= 0x110000) are replaced with the Unicode replacement character.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append_char(sb, 0x1F30D); // 🌍 emoji
+ * ds_builder_append_char(sb, 0x41);    // 'A'
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_append_char() for immutable string version
+ */
 DS_DEF int ds_builder_append_char(ds_builder sb, uint32_t codepoint);
+
+/**
+ * @brief Append a ds_string to StringBuilder
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param str ds_string to append (must not be NULL)
+ * @return 1 on success, 0 on failure
+ * @since 0.3.0
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_string greeting = ds_new("Hello");
+ * ds_builder_append_string(sb, greeting);
+ * ds_builder_append(sb, " World");
+ * ds_release(&greeting);
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_append() for C string appending
+ */
 DS_DEF int ds_builder_append_string(ds_builder sb, ds_string str);
+
+/**
+ * @brief Insert text at specific position in StringBuilder
+ * @param sb StringBuilder to modify (must not be NULL)
+ * @param index Position to insert at (0-based)
+ * @param text Text to insert (must not be NULL)
+ * @return 1 on success, 0 on failure
+ * @since 0.3.0
+ * 
+ * Inserts text at the specified position. If index is beyond the string
+ * length, the text is appended at the end.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello World");
+ * ds_builder_insert(sb, 6, "Beautiful ");
+ * // sb now contains "Hello Beautiful World"
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_append() for appending at end
+ * @see ds_builder_prepend() for inserting at beginning
+ */
 DS_DEF int ds_builder_insert(ds_builder sb, size_t index, const char* text);
+
+/**
+ * @brief Clear all content from StringBuilder
+ * @param sb StringBuilder to clear (must not be NULL)
+ * @since 0.3.0
+ * 
+ * Removes all content from the StringBuilder but preserves the allocated
+ * capacity for reuse.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello World");
+ * ds_builder_clear(sb);
+ * // sb is now empty but capacity is preserved
+ * ds_builder_append(sb, "New content");
+ * ds_builder_release(&sb);
+ * @endcode
+ */
 DS_DEF void ds_builder_clear(ds_builder sb);
 
-// Conversion to immutable string (the magic happens here!)
+/** @} */
+
+/**
+ * @defgroup builder_formatting StringBuilder Formatting Functions
+ * @brief Functions for formatted text appending
+ * @{
+ */
+
+/**
+ * @brief Append formatted text to StringBuilder using printf-style formatting
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param fmt Format string with printf-style specifiers (must not be NULL)
+ * @param ... Arguments for format specifiers
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append_format(sb, "User: %s, Age: %d", "Alice", 25);
+ * // sb now contains "User: Alice, Age: 25"
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_append_format_v() for va_list version
+ * @see ds_format() for creating formatted immutable strings
+ */
+DS_DEF int ds_builder_append_format(ds_builder sb, const char* fmt, ...);
+
+/**
+ * @brief Append formatted text to StringBuilder using va_list
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param fmt Format string with printf-style specifiers (must not be NULL)
+ * @param args Variable argument list
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * This is the va_list version of ds_builder_append_format(), useful for
+ * creating wrapper functions that accept variable arguments.
+ * 
+ * @see ds_builder_append_format() for the variadic version
+ */
+DS_DEF int ds_builder_append_format_v(ds_builder sb, const char* fmt, va_list args);
+
+/** @} */
+
+/**
+ * @defgroup builder_numeric StringBuilder Numeric Functions
+ * @brief Functions for appending numeric values
+ * @{
+ */
+
+/**
+ * @brief Append an integer value to StringBuilder
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param value Integer value to append
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append_int(sb, -42);
+ * // sb now contains "-42"
+ * ds_builder_release(&sb);
+ * @endcode
+ */
+DS_DEF int ds_builder_append_int(ds_builder sb, int value);
+
+/**
+ * @brief Append an unsigned integer value to StringBuilder
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param value Unsigned integer value to append
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append_uint(sb, 42u);
+ * // sb now contains "42"
+ * ds_builder_release(&sb);
+ * @endcode
+ */
+DS_DEF int ds_builder_append_uint(ds_builder sb, unsigned int value);
+
+/**
+ * @brief Append a long integer value to StringBuilder
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param value Long integer value to append
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append_long(sb, -123456789L);
+ * // sb now contains "-123456789"
+ * ds_builder_release(&sb);
+ * @endcode
+ */
+DS_DEF int ds_builder_append_long(ds_builder sb, long value);
+
+/**
+ * @brief Append a double value to StringBuilder with specified precision
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param value Double value to append
+ * @param precision Number of decimal places (negative values default to 6)
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append_double(sb, 3.14159, 2);
+ * // sb now contains "3.14"
+ * ds_builder_append_double(sb, 2.71828, -1); // Uses default precision (6)
+ * // sb now contains "3.142.718280"
+ * ds_builder_release(&sb);
+ * @endcode
+ */
+DS_DEF int ds_builder_append_double(ds_builder sb, double value, int precision);
+
+/** @} */
+
+/**
+ * @defgroup builder_buffer StringBuilder Buffer Operations
+ * @brief Functions for buffer-based string operations
+ * @{
+ */
+
+/**
+ * @brief Append a specific number of bytes from text to StringBuilder
+ * @param sb StringBuilder to append to (must not be NULL)
+ * @param text Source text buffer (must not be NULL)
+ * @param length Number of bytes to append from text
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * This function allows appending a portion of a string, which is useful
+ * for working with buffers or when you don't want the entire string.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append_length(sb, "Hello World", 5);
+ * // sb now contains "Hello"
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_append() for null-terminated string appending
+ */
+DS_DEF int ds_builder_append_length(ds_builder sb, const char* text, size_t length);
+
+/**
+ * @brief Prepend text to the beginning of StringBuilder
+ * @param sb StringBuilder to prepend to (must not be NULL)
+ * @param text Text to prepend (must not be NULL)
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "World");
+ * ds_builder_prepend(sb, "Hello ");
+ * // sb now contains "Hello World"
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @note This operation requires moving existing content, so it's less efficient
+ *       than append operations for large strings
+ */
+DS_DEF int ds_builder_prepend(ds_builder sb, const char* text);
+
+/**
+ * @brief Replace a range of characters in StringBuilder with new text
+ * @param sb StringBuilder to modify (must not be NULL)
+ * @param start Starting position of range to replace (0-based)
+ * @param end Ending position of range to replace (exclusive, 0-based)
+ * @param replacement Text to insert in place of the range (must not be NULL)
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * Replaces characters from position `start` up to (but not including) position `end`
+ * with the replacement text. The replacement can be shorter, same length, or longer
+ * than the original range.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello World");
+ * ds_builder_replace_range(sb, 6, 11, "Universe"); // Replace "World"
+ * // sb now contains "Hello Universe"
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @note If start > end, the values are swapped
+ * @note Positions beyond string length are clamped to string length
+ */
+DS_DEF int ds_builder_replace_range(ds_builder sb, size_t start, size_t end, const char* replacement);
+
+/** @} */
+
+/**
+ * @defgroup builder_manipulation StringBuilder Content Manipulation
+ * @brief Functions for modifying StringBuilder content
+ * @{
+ */
+
+/**
+ * @brief Remove a range of characters from StringBuilder
+ * @param sb StringBuilder to modify (must not be NULL)
+ * @param start Starting position of range to remove (0-based)
+ * @param length Number of characters to remove
+ * @return 1 on success, 0 on failure
+ * @since 0.3.1
+ * 
+ * Removes `length` characters starting from position `start`. If the range
+ * extends beyond the string, only characters up to the end are removed.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello Beautiful World");
+ * ds_builder_remove_range(sb, 6, 10); // Remove "Beautiful "
+ * // sb now contains "Hello World"
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @note If start is beyond string length, no characters are removed
+ * @note If length is 0, no characters are removed
+ */
+DS_DEF int ds_builder_remove_range(ds_builder sb, size_t start, size_t length);
+
+/** @} */
+
+/**
+ * @defgroup builder_conversion StringBuilder Conversion Functions
+ * @brief Functions for converting StringBuilder to immutable strings
+ * @{
+ */
+
+/**
+ * @brief Convert StringBuilder to immutable ds_string
+ * @param sb StringBuilder to convert (must not be NULL)
+ * @return New immutable ds_string, NULL on failure
+ * @since 0.3.0
+ * 
+ * Creates an immutable ds_string from the StringBuilder content. The StringBuilder
+ * data is consumed in the process - after this call, the StringBuilder will be
+ * empty but still valid for further use.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello World");
+ * ds_string result = ds_builder_to_string(sb);
+ * // result contains "Hello World", sb is now empty
+ * ds_release(&result);
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @note The StringBuilder data is consumed - it becomes empty after conversion
+ * @see ds_builder_cstr() for non-consuming access to content
+ */
 DS_DEF ds_string ds_builder_to_string(ds_builder sb);
 
-// StringBuilder inspection
+/** @} */
+
+/**
+ * @defgroup builder_inspection StringBuilder Inspection Functions
+ * @brief Functions for inspecting StringBuilder state
+ * @{
+ */
+
+/**
+ * @brief Get the current length of StringBuilder content
+ * @param sb StringBuilder to inspect (must not be NULL)
+ * @return Current length in bytes, 0 if NULL
+ * @since 0.3.0
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello");
+ * assert(ds_builder_length(sb) == 5);
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_capacity() for allocated capacity
+ * @see ds_length() for immutable string length
+ */
 DS_DEF size_t ds_builder_length(ds_builder sb);
+
+/**
+ * @brief Get the current capacity of StringBuilder
+ * @param sb StringBuilder to inspect
+ * @return Current capacity in bytes, 0 if NULL
+ * @since 0.3.0
+ * 
+ * Returns the total allocated capacity. When length reaches capacity,
+ * the StringBuilder will automatically grow on the next append operation.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create_with_capacity(100);
+ * assert(ds_builder_capacity(sb) == 100);
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @see ds_builder_length() for current content length
+ */
 DS_DEF size_t ds_builder_capacity(ds_builder sb);
+
+/**
+ * @brief Get direct access to StringBuilder content as C string
+ * @param sb StringBuilder to access
+ * @return Pointer to null-terminated string content, empty string if NULL
+ * @since 0.3.0
+ * 
+ * Returns a pointer to the internal string buffer. The returned pointer
+ * is valid until the next modifying operation on the StringBuilder.
+ * 
+ * @code
+ * ds_builder sb = ds_builder_create();
+ * ds_builder_append(sb, "Hello World");
+ * printf("Content: %s\n", ds_builder_cstr(sb));
+ * ds_builder_release(&sb);
+ * @endcode
+ * 
+ * @warning The returned pointer becomes invalid after any modifying operation
+ * @see ds_builder_to_string() for creating an immutable copy
+ */
 DS_DEF const char* ds_builder_cstr(ds_builder sb);
+
+/** @} */
 
 #ifdef __cplusplus
 }
@@ -1896,6 +2391,199 @@ DS_DEF size_t ds_builder_length(ds_builder sb) {
 DS_DEF size_t ds_builder_capacity(ds_builder sb) { return sb ? sb->capacity : 0; }
 
 DS_DEF const char* ds_builder_cstr(ds_builder sb) { return sb && sb->data ? sb->data : ""; }
+
+// ============================================================================
+// NEW STRINGBUILDER FUNCTIONS
+// ============================================================================
+
+// Formatting functions
+DS_DEF int ds_builder_append_format(ds_builder sb, const char* fmt, ...) {
+    DS_ASSERT(sb && "ds_builder_append_format: sb cannot be NULL");
+    DS_ASSERT(fmt && "ds_builder_append_format: fmt cannot be NULL");
+    DS_ASSERT(sb->data && "ds_builder_append_format: sb->data cannot be NULL");
+    
+    va_list args;
+    va_start(args, fmt);
+    int result = ds_builder_append_format_v(sb, fmt, args);
+    va_end(args);
+    
+    return result;
+}
+
+DS_DEF int ds_builder_append_format_v(ds_builder sb, const char* fmt, va_list args) {
+    DS_ASSERT(sb && "ds_builder_append_format_v: sb cannot be NULL");
+    DS_ASSERT(fmt && "ds_builder_append_format_v: fmt cannot be NULL");
+    DS_ASSERT(sb->data && "ds_builder_append_format_v: sb->data cannot be NULL");
+    
+    // Get required size
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int size = vsnprintf(NULL, 0, fmt, args_copy);
+    va_end(args_copy);
+    
+    if (size < 0) return 0;
+    if (size == 0) return 1; // Nothing to append
+    
+    if (!ds_sb_ensure_unique(sb)) return 0;
+    
+    ds_internal* meta = ds_meta(sb->data);
+    if (!ds_sb_ensure_capacity(sb, meta->length + size + 1)) return 0;
+    
+    // Format directly into buffer
+    meta = ds_meta(sb->data);
+    vsnprintf(sb->data + meta->length, size + 1, fmt, args);
+    meta->length += size;
+    
+    return 1;
+}
+
+// Numeric append functions
+DS_DEF int ds_builder_append_int(ds_builder sb, int value) {
+    DS_ASSERT(sb && "ds_builder_append_int: sb cannot be NULL");
+    return ds_builder_append_format(sb, "%d", value);
+}
+
+DS_DEF int ds_builder_append_uint(ds_builder sb, unsigned int value) {
+    DS_ASSERT(sb && "ds_builder_append_uint: sb cannot be NULL");
+    return ds_builder_append_format(sb, "%u", value);
+}
+
+DS_DEF int ds_builder_append_long(ds_builder sb, long value) {
+    DS_ASSERT(sb && "ds_builder_append_long: sb cannot be NULL");
+    return ds_builder_append_format(sb, "%ld", value);
+}
+
+DS_DEF int ds_builder_append_double(ds_builder sb, double value, int precision) {
+    DS_ASSERT(sb && "ds_builder_append_double: sb cannot be NULL");
+    if (precision < 0) precision = 6; // Default precision
+    return ds_builder_append_format(sb, "%.*f", precision, value);
+}
+
+// Buffer operations
+DS_DEF int ds_builder_append_length(ds_builder sb, const char* text, size_t length) {
+    DS_ASSERT(sb && "ds_builder_append_length: sb cannot be NULL");
+    DS_ASSERT(text && "ds_builder_append_length: text cannot be NULL");
+    DS_ASSERT(sb->data && "ds_builder_append_length: sb->data cannot be NULL");
+    
+    if (length == 0) return 1;
+    
+    if (!ds_sb_ensure_unique(sb)) return 0;
+    
+    ds_internal* meta = ds_meta(sb->data);
+    if (!ds_sb_ensure_capacity(sb, meta->length + length + 1)) return 0;
+    
+    meta = ds_meta(sb->data);
+    memcpy(sb->data + meta->length, text, length);
+    meta->length += length;
+    sb->data[meta->length] = '\0';
+    
+    return 1;
+}
+
+DS_DEF int ds_builder_prepend(ds_builder sb, const char* text) {
+    DS_ASSERT(sb && "ds_builder_prepend: sb cannot be NULL");
+    DS_ASSERT(text && "ds_builder_prepend: text cannot be NULL");
+    DS_ASSERT(sb->data && "ds_builder_prepend: sb->data cannot be NULL");
+    
+    size_t text_len = strlen(text);
+    if (text_len == 0) return 1;
+    
+    if (!ds_sb_ensure_unique(sb)) return 0;
+    
+    ds_internal* meta = ds_meta(sb->data);
+    if (!ds_sb_ensure_capacity(sb, meta->length + text_len + 1)) return 0;
+    
+    meta = ds_meta(sb->data);
+    
+    // Move existing content to make room at the beginning
+    memmove(sb->data + text_len, sb->data, meta->length + 1);
+    
+    // Copy new text to the beginning
+    memcpy(sb->data, text, text_len);
+    meta->length += text_len;
+    
+    return 1;
+}
+
+DS_DEF int ds_builder_replace_range(ds_builder sb, size_t start, size_t end, const char* replacement) {
+    DS_ASSERT(sb && "ds_builder_replace_range: sb cannot be NULL");
+    DS_ASSERT(replacement && "ds_builder_replace_range: replacement cannot be NULL");
+    DS_ASSERT(sb->data && "ds_builder_replace_range: sb->data cannot be NULL");
+    
+    ds_internal* meta = ds_meta(sb->data);
+    if (start > meta->length) start = meta->length;
+    if (end > meta->length) end = meta->length;
+    if (start > end) {
+        size_t temp = start;
+        start = end;
+        end = temp;
+    }
+    
+    if (!ds_sb_ensure_unique(sb)) return 0;
+    
+    size_t replacement_len = strlen(replacement);
+    size_t range_len = end - start;
+    
+    meta = ds_meta(sb->data);
+    
+    if (replacement_len != range_len) {
+        // Need to resize
+        size_t new_length = meta->length - range_len + replacement_len;
+        if (!ds_sb_ensure_capacity(sb, new_length + 1)) return 0;
+        
+        meta = ds_meta(sb->data);
+        
+        // Move content after the range
+        if (replacement_len > range_len) {
+            // Growing - move right
+            memmove(sb->data + start + replacement_len, 
+                   sb->data + end,
+                   meta->length - end + 1);
+        } else if (replacement_len < range_len) {
+            // Shrinking - move left
+            memmove(sb->data + start + replacement_len,
+                   sb->data + end,
+                   meta->length - end + 1);
+        }
+        
+        meta->length = new_length;
+    }
+    
+    // Copy replacement text
+    if (replacement_len > 0) {
+        memcpy(sb->data + start, replacement, replacement_len);
+    }
+    
+    return 1;
+}
+
+// Content manipulation
+DS_DEF int ds_builder_remove_range(ds_builder sb, size_t start, size_t length) {
+    DS_ASSERT(sb && "ds_builder_remove_range: sb cannot be NULL");
+    DS_ASSERT(sb->data && "ds_builder_remove_range: sb->data cannot be NULL");
+    
+    ds_internal* meta = ds_meta(sb->data);
+    if (start >= meta->length) return 1; // Nothing to remove
+    
+    if (start + length > meta->length) {
+        length = meta->length - start;
+    }
+    
+    if (length == 0) return 1;
+    
+    if (!ds_sb_ensure_unique(sb)) return 0;
+    
+    meta = ds_meta(sb->data);
+    
+    // Move content after the removed range to fill the gap
+    memmove(sb->data + start, 
+           sb->data + start + length,
+           meta->length - start - length + 1);
+    
+    meta->length -= length;
+    
+    return 1;
+}
 
 #endif // DS_IMPLEMENTATION
 
