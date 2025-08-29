@@ -115,65 +115,65 @@ void demonstrate_stringbuilder() {
     printf("\n=== StringBuilder Demo ===\n");
 
     // Create a StringBuilder for efficient building
-    ds_stringbuilder sb = ds_sb_create();
-    printf("Created StringBuilder (capacity: %zu)\n", ds_sb_capacity(&sb));
+    ds_builder sb = ds_builder_create();
+    printf("Created StringBuilder (capacity: %zu)\n", ds_builder_capacity(&sb));
 
     // Build a string efficiently
-    ds_sb_append(&sb, "Building");
-    ds_sb_append(&sb, " a");
-    ds_sb_append(&sb, " string");
-    ds_sb_append(&sb, " efficiently");
+    ds_builder_append(&sb, "Building");
+    ds_builder_append(&sb, " a");
+    ds_builder_append(&sb, " string");
+    ds_builder_append(&sb, " efficiently");
 
-    printf("After building: '%s' (length: %zu, capacity: %zu)\n", ds_sb_cstr(&sb), ds_sb_length(&sb),
-           ds_sb_capacity(&sb));
+    printf("After building: '%s' (length: %zu, capacity: %zu)\n", ds_builder_cstr(&sb), ds_builder_length(&sb),
+           ds_builder_capacity(&sb));
 
     // THE MAGIC: Convert to immutable string
-    ds_string result = ds_sb_to_string(&sb);
+    ds_string result = ds_builder_to_string(&sb);
 
     printf("Converted to ds_string: '%s' (refs: %zu)\n", result, ds_refcount(result));
-    printf("StringBuilder after conversion (capacity: %zu)\n", ds_sb_capacity(&sb));
+    printf("StringBuilder after conversion (capacity: %zu)\n", ds_builder_capacity(&sb));
     printf("StringBuilder and string share data: %s\n", (sb.data == result) ? "YES" : "NO");
 
     // Continue using StringBuilder - this triggers copy-on-write!
     printf("\nContinuing to use StringBuilder (should trigger COW)...\n");
-    ds_sb_append(&sb, " + more text");
+    ds_builder_append(&sb, " + more text");
 
-    printf("StringBuilder: '%s' (refs: %zu)\n", ds_sb_cstr(&sb), ds_refcount((ds_string){sb.data}));
+    printf("StringBuilder: '%s' (refs: %zu)\n", ds_builder_cstr(&sb), ds_refcount((ds_string){sb.data}));
     printf("Original string: '%s' (refs: %zu)\n", result, ds_refcount(result));
     printf("Now they're separate: %s\n", (sb.data != result) ? "YES" : "NO");
 
     // Clean up
     ds_release(&result);
-    ds_sb_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void demonstrate_builder_efficiency() {
     printf("\n=== Builder Efficiency Demo ===\n");
 
     // Build a large string efficiently
-    ds_stringbuilder sb = ds_sb_create_with_capacity(1000);
+    ds_builder sb = ds_builder_create_with_capacity(1000);
 
-    printf("Building large string with capacity: %zu\n", ds_sb_capacity(&sb));
+    printf("Building large string with capacity: %zu\n", ds_builder_capacity(&sb));
 
     // Add many parts
     for (int i = 0; i < 100; i++) {
-        ds_sb_append(&sb, "Part ");
-        ds_sb_append_char(&sb, '0' + (i % 10));
-        ds_sb_append(&sb, " ");
+        ds_builder_append(&sb, "Part ");
+        ds_builder_append_char(&sb, '0' + (i % 10));
+        ds_builder_append(&sb, " ");
     }
 
-    printf("Built string with %zu characters\n", ds_sb_length(&sb));
-    printf("Final capacity: %zu (growth happened automatically)\n", ds_sb_capacity(&sb));
+    printf("Built string with %zu characters\n", ds_builder_length(&sb));
+    printf("Final capacity: %zu (growth happened automatically)\n", ds_builder_capacity(&sb));
 
     // Convert to immutable string - no copying needed!
-    ds_string final = ds_sb_to_string(&sb);
+    ds_string final = ds_builder_to_string(&sb);
     printf("Converted to immutable string (ref count: %zu)\n", ds_refcount(final));
 
     // The string was built in-place and is now ready to use
     printf("First 50 chars: '%.50s...'\n", final);
 
     ds_release(&final);
-    ds_sb_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void demonstrate_unicode_iteration() {

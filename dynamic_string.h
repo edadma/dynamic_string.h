@@ -1,7 +1,7 @@
 /**
  * @file dynamic_string.h
  * @brief Modern, efficient, single-file string library for C
- * @version 0.2.2
+ * @version 0.3.0
  * @date Aug 22, 2025
  *
  * @details
@@ -564,30 +564,36 @@ DS_DEF uint32_t ds_codepoint_at(ds_string str, size_t index);
 // STRINGBUILDER - Mutable builder for efficient string construction
 // ============================================================================
 
-typedef struct {
+typedef struct ds_builder_struct {
     ds_string data; // Points to string data (same layout as ds_string)
     size_t capacity; // Capacity for growth (length is in metadata)
-} ds_stringbuilder;
+#ifdef DS_ATOMIC_REFCOUNT
+    _Atomic size_t refcount; // Atomic reference count
+#else
+    size_t refcount; // Reference count
+#endif
+} *ds_builder;
 
 // StringBuilder creation and management
-DS_DEF ds_stringbuilder ds_builder_create(void);
-DS_DEF ds_stringbuilder ds_builder_create_with_capacity(size_t capacity);
-DS_DEF void ds_builder_destroy(ds_stringbuilder* sb);
+DS_DEF ds_builder ds_builder_create(void);
+DS_DEF ds_builder ds_builder_create_with_capacity(size_t capacity);
+DS_DEF ds_builder ds_builder_retain(ds_builder sb);
+DS_DEF void ds_builder_release(ds_builder* sb);
 
 // Mutable operations (modify the builder in-place)
-DS_DEF int ds_builder_append(ds_stringbuilder* sb, const char* text);
-DS_DEF int ds_builder_append_char(ds_stringbuilder* sb, uint32_t codepoint);
-DS_DEF int ds_builder_append_string(ds_stringbuilder* sb, ds_string str);
-DS_DEF int ds_builder_insert(ds_stringbuilder* sb, size_t index, const char* text);
-DS_DEF void ds_builder_clear(ds_stringbuilder* sb);
+DS_DEF int ds_builder_append(ds_builder sb, const char* text);
+DS_DEF int ds_builder_append_char(ds_builder sb, uint32_t codepoint);
+DS_DEF int ds_builder_append_string(ds_builder sb, ds_string str);
+DS_DEF int ds_builder_insert(ds_builder sb, size_t index, const char* text);
+DS_DEF void ds_builder_clear(ds_builder sb);
 
 // Conversion to immutable string (the magic happens here!)
-DS_DEF ds_string ds_builder_to_string(ds_stringbuilder* sb);
+DS_DEF ds_string ds_builder_to_string(ds_builder sb);
 
 // StringBuilder inspection
-DS_DEF size_t ds_builder_length(const ds_stringbuilder* sb);
-DS_DEF size_t ds_builder_capacity(const ds_stringbuilder* sb);
-DS_DEF const char* ds_builder_cstr(const ds_stringbuilder* sb);
+DS_DEF size_t ds_builder_length(ds_builder sb);
+DS_DEF size_t ds_builder_capacity(ds_builder sb);
+DS_DEF const char* ds_builder_cstr(ds_builder sb);
 
 #ifdef __cplusplus
 }
@@ -867,19 +873,19 @@ DS_DEF ds_string ds_join(ds_string* strings, size_t count, const char* separator
         return ds_retain(strings[0]);
     }
 
-    ds_stringbuilder sb = ds_builder_create();
+    ds_builder sb = ds_builder_create();
 
     for (size_t i = 0; i < count; i++) {
         DS_ASSERT(strings[i] && "ds_join: strings[i] cannot be NULL");
-        ds_builder_append_string(&sb, strings[i]);
+        ds_builder_append_string(sb, strings[i]);
 
         if (i < count - 1 && separator) {
-            ds_builder_append(&sb, separator);
+            ds_builder_append(sb, separator);
         }
     }
 
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1083,27 +1089,27 @@ DS_DEF ds_string ds_replace(ds_string str, const char* old, const char* new) {
     size_t new_len = strlen(new);
     size_t str_len = ds_length(str);
     
-    ds_stringbuilder sb = ds_builder_create();
+    ds_builder sb = ds_builder_create();
     
     // Add part before match
     if (pos > 0) {
         ds_string before = ds_substring(str, 0, pos);
-        ds_builder_append_string(&sb, before);
+        ds_builder_append_string(sb, before);
         ds_release(&before);
     }
     
     // Add replacement
-    ds_builder_append(&sb, new);
+    ds_builder_append(sb, new);
     
     // Add part after match
     if (pos + old_len < str_len) {
         ds_string after = ds_substring(str, pos + old_len, str_len - (pos + old_len));
-        ds_builder_append_string(&sb, after);
+        ds_builder_append_string(sb, after);
         ds_release(&after);
     }
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1115,7 +1121,7 @@ DS_DEF ds_string ds_replace_all(ds_string str, const char* old, const char* new)
     size_t old_len = strlen(old);
     if (old_len == 0) return ds_retain(str);
     
-    ds_stringbuilder sb = ds_builder_create();
+    ds_builder sb = ds_builder_create();
     size_t start = 0;
     size_t str_len = ds_length(str);
     
@@ -1124,7 +1130,7 @@ DS_DEF ds_string ds_replace_all(ds_string str, const char* old, const char* new)
         if (!found) {
             // No more matches, add remainder
             ds_string remainder = ds_substring(str, start, str_len - start);
-            ds_builder_append_string(&sb, remainder);
+            ds_builder_append_string(sb, remainder);
             ds_release(&remainder);
             break;
         }
@@ -1134,19 +1140,19 @@ DS_DEF ds_string ds_replace_all(ds_string str, const char* old, const char* new)
         // Add part before match
         if (match_pos > start) {
             ds_string before = ds_substring(str, start, match_pos - start);
-            ds_builder_append_string(&sb, before);
+            ds_builder_append_string(sb, before);
             ds_release(&before);
         }
         
         // Add replacement
-        ds_builder_append(&sb, new);
+        ds_builder_append(sb, new);
         
         // Move past the match
         start = match_pos + old_len;
     }
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1162,16 +1168,16 @@ DS_DEF ds_string ds_to_upper(ds_string str) {
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
     
-    ds_stringbuilder sb = ds_builder_create_with_capacity(len);
+    ds_builder sb = ds_builder_create_with_capacity(len);
     
     for (size_t i = 0; i < len; i++) {
         char c = str[i];
         char upper_c = (char)toupper((unsigned char)c);
-        ds_builder_append_char(&sb, upper_c);
+        ds_builder_append_char(sb, upper_c);
     }
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1181,16 +1187,16 @@ DS_DEF ds_string ds_to_lower(ds_string str) {
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
     
-    ds_stringbuilder sb = ds_builder_create_with_capacity(len);
+    ds_builder sb = ds_builder_create_with_capacity(len);
     
     for (size_t i = 0; i < len; i++) {
         char c = str[i];
         char lower_c = (char)tolower((unsigned char)c);
-        ds_builder_append_char(&sb, lower_c);
+        ds_builder_append_char(sb, lower_c);
     }
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1206,14 +1212,14 @@ DS_DEF ds_string ds_repeat(ds_string str, size_t times) {
     size_t str_len = ds_length(str);
     if (str_len == 0) return ds_retain(str);
     
-    ds_stringbuilder sb = ds_builder_create_with_capacity(str_len * times);
+    ds_builder sb = ds_builder_create_with_capacity(str_len * times);
     
     for (size_t i = 0; i < times; i++) {
-        ds_builder_append_string(&sb, str);
+        ds_builder_append_string(sb, str);
     }
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1237,19 +1243,19 @@ DS_DEF ds_string ds_truncate(ds_string str, size_t max_length, const char* ellip
     }
     
     // Use builder for efficient construction
-    ds_stringbuilder sb = ds_builder_create_with_capacity(max_length + ellipsis_len);
+    ds_builder sb = ds_builder_create_with_capacity(max_length + ellipsis_len);
     
     // Add truncated part
     size_t truncate_at = max_length - ellipsis_len;
     ds_string truncated_part = ds_substring(str, 0, truncate_at);
-    ds_builder_append_string(&sb, truncated_part);
+    ds_builder_append_string(sb, truncated_part);
     ds_release(&truncated_part);
     
     // Add ellipsis
-    ds_builder_append(&sb, ellipsis);
+    ds_builder_append(sb, ellipsis);
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1259,7 +1265,7 @@ DS_DEF ds_string ds_reverse(ds_string str) {
     size_t len = ds_length(str);
     if (len <= 1) return ds_retain(str);
     
-    ds_stringbuilder sb = ds_builder_create_with_capacity(len);
+    ds_builder sb = ds_builder_create_with_capacity(len);
     
     // Reverse by codepoints for proper Unicode handling
     ds_codepoint_iter iter = ds_codepoints(str);
@@ -1273,13 +1279,13 @@ DS_DEF ds_string ds_reverse(ds_string str) {
     
     // Add codepoints in reverse order
     for (size_t i = cp_count; i > 0; i--) {
-        ds_builder_append_char(&sb, codepoints[i - 1]);
+        ds_builder_append_char(sb, codepoints[i - 1]);
     }
     
     DS_FREE(codepoints);
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1290,18 +1296,18 @@ DS_DEF ds_string ds_pad_left(ds_string str, size_t width, char pad) {
     if (len >= width) return ds_retain(str);
     
     size_t pad_count = width - len;
-    ds_stringbuilder sb = ds_builder_create_with_capacity(width);
+    ds_builder sb = ds_builder_create_with_capacity(width);
     
     // Add padding
     for (size_t i = 0; i < pad_count; i++) {
-        ds_builder_append_char(&sb, pad);
+        ds_builder_append_char(sb, pad);
     }
     
     // Add original string
-    ds_builder_append_string(&sb, str);
+    ds_builder_append_string(sb, str);
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1312,18 +1318,18 @@ DS_DEF ds_string ds_pad_right(ds_string str, size_t width, char pad) {
     if (len >= width) return ds_retain(str);
     
     size_t pad_count = width - len;
-    ds_stringbuilder sb = ds_builder_create_with_capacity(width);
+    ds_builder sb = ds_builder_create_with_capacity(width);
     
     // Add original string
-    ds_builder_append_string(&sb, str);
+    ds_builder_append_string(sb, str);
     
     // Add padding
     for (size_t i = 0; i < pad_count; i++) {
-        ds_builder_append_char(&sb, pad);
+        ds_builder_append_char(sb, pad);
     }
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1442,34 +1448,34 @@ DS_DEF ds_string ds_escape_json(ds_string str) {
     if (len == 0) return ds_retain(str);
     
     // Use builder with reasonable initial capacity (assume some escaping needed)
-    ds_stringbuilder sb = ds_builder_create_with_capacity(len * 2);
+    ds_builder sb = ds_builder_create_with_capacity(len * 2);
     
     for (size_t i = 0; i < len; i++) {
         unsigned char c = (unsigned char)str[i];
         
         switch (c) {
-            case '"':  ds_builder_append(&sb, "\\\""); break;
-            case '\\': ds_builder_append(&sb, "\\\\"); break;
-            case '\b': ds_builder_append(&sb, "\\b"); break;
-            case '\f': ds_builder_append(&sb, "\\f"); break;
-            case '\n': ds_builder_append(&sb, "\\n"); break;
-            case '\r': ds_builder_append(&sb, "\\r"); break;
-            case '\t': ds_builder_append(&sb, "\\t"); break;
+            case '"':  ds_builder_append(sb, "\\\""); break;
+            case '\\': ds_builder_append(sb, "\\\\"); break;
+            case '\b': ds_builder_append(sb, "\\b"); break;
+            case '\f': ds_builder_append(sb, "\\f"); break;
+            case '\n': ds_builder_append(sb, "\\n"); break;
+            case '\r': ds_builder_append(sb, "\\r"); break;
+            case '\t': ds_builder_append(sb, "\\t"); break;
             default:
                 if (c < 0x20) {
                     // Control characters - escape as \uXXXX
                     ds_string escaped = ds_format("\\u%04x", c);
-                    ds_builder_append_string(&sb, escaped);
+                    ds_builder_append_string(sb, escaped);
                     ds_release(&escaped);
                 } else {
-                    ds_builder_append_char(&sb, c);
+                    ds_builder_append_char(sb, c);
                 }
                 break;
         }
     }
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1479,19 +1485,19 @@ DS_DEF ds_string ds_unescape_json(ds_string str) {
     size_t len = ds_length(str);
     if (len == 0) return ds_retain(str);
     
-    ds_stringbuilder sb = ds_builder_create_with_capacity(len);
+    ds_builder sb = ds_builder_create_with_capacity(len);
     
     for (size_t i = 0; i < len; i++) {
         if (str[i] == '\\' && i + 1 < len) {
             switch (str[i + 1]) {
-                case '"':  ds_builder_append_char(&sb, '"'); i++; break;
-                case '\\': ds_builder_append_char(&sb, '\\'); i++; break;
-                case '/':  ds_builder_append_char(&sb, '/'); i++; break;
-                case 'b':  ds_builder_append_char(&sb, '\b'); i++; break;
-                case 'f':  ds_builder_append_char(&sb, '\f'); i++; break;
-                case 'n':  ds_builder_append_char(&sb, '\n'); i++; break;
-                case 'r':  ds_builder_append_char(&sb, '\r'); i++; break;
-                case 't':  ds_builder_append_char(&sb, '\t'); i++; break;
+                case '"':  ds_builder_append_char(sb, '"'); i++; break;
+                case '\\': ds_builder_append_char(sb, '\\'); i++; break;
+                case '/':  ds_builder_append_char(sb, '/'); i++; break;
+                case 'b':  ds_builder_append_char(sb, '\b'); i++; break;
+                case 'f':  ds_builder_append_char(sb, '\f'); i++; break;
+                case 'n':  ds_builder_append_char(sb, '\n'); i++; break;
+                case 'r':  ds_builder_append_char(sb, '\r'); i++; break;
+                case 't':  ds_builder_append_char(sb, '\t'); i++; break;
                 case 'u':
                     // Unicode escape sequence \uXXXX
                     if (i + 5 < len) {
@@ -1499,29 +1505,29 @@ DS_DEF ds_string ds_unescape_json(ds_string str) {
                         char* endptr;
                         unsigned long codepoint = strtoul(hex, &endptr, 16);
                         if (endptr == hex + 4) {  // Valid 4-digit hex
-                            ds_builder_append_char(&sb, (uint32_t)codepoint);
+                            ds_builder_append_char(sb, (uint32_t)codepoint);
                             i += 5;
                         } else {
                             // Invalid escape, keep as-is
-                            ds_builder_append_char(&sb, str[i]);
+                            ds_builder_append_char(sb, str[i]);
                         }
                     } else {
                         // Incomplete escape at end of string
-                        ds_builder_append_char(&sb, str[i]);
+                        ds_builder_append_char(sb, str[i]);
                     }
                     break;
                 default:
                     // Unknown escape, keep both characters
-                    ds_builder_append_char(&sb, str[i]);
+                    ds_builder_append_char(sb, str[i]);
                     break;
             }
         } else {
-            ds_builder_append_char(&sb, str[i]);
+            ds_builder_append_char(sb, str[i]);
         }
     }
     
-    ds_string result = ds_builder_to_string(&sb);
-    ds_builder_destroy(&sb);
+    ds_string result = ds_builder_to_string(sb);
+    ds_builder_release(&sb);
     return result;
 }
 
@@ -1646,7 +1652,7 @@ DS_DEF uint32_t ds_codepoint_at(ds_string str, size_t index) {
 #endif
 
 // StringBuilder helper functions
-static int ds_sb_ensure_capacity(ds_stringbuilder* sb, size_t required_capacity) {
+static int ds_sb_ensure_capacity(ds_builder sb, size_t required_capacity) {
     if (sb->capacity >= required_capacity) {
         return 1; // Already have enough capacity
     }
@@ -1669,7 +1675,7 @@ static int ds_sb_ensure_capacity(ds_stringbuilder* sb, size_t required_capacity)
     return 1;
 }
 
-static int ds_sb_ensure_unique(ds_stringbuilder* sb) {
+static int ds_sb_ensure_unique(ds_builder sb) {
     if (!sb->data)
         return 0;
 
@@ -1696,36 +1702,56 @@ static int ds_sb_ensure_unique(ds_stringbuilder* sb) {
     return 1;
 }
 
-DS_DEF ds_stringbuilder ds_builder_create(void) { return ds_builder_create_with_capacity(DS_SB_INITIAL_CAPACITY); }
+DS_DEF ds_builder ds_builder_create(void) { 
+    return ds_builder_create_with_capacity(DS_SB_INITIAL_CAPACITY); 
+}
 
-DS_DEF ds_stringbuilder ds_builder_create_with_capacity(size_t capacity) {
-    ds_stringbuilder sb;
-
+DS_DEF ds_builder ds_builder_create_with_capacity(size_t capacity) {
     if (capacity == 0)
         capacity = DS_SB_INITIAL_CAPACITY;
 
+    // Allocate the builder struct
+    ds_builder sb = (ds_builder)DS_MALLOC(sizeof(struct ds_builder_struct));
+    DS_ASSERT(sb && "Memory allocation failed");
+
+    // Allocate the string data
     void* block = DS_MALLOC(sizeof(ds_internal) + capacity);
-    DS_ASSERT(block && "Memory allocation failed");
+    if (!block) {
+        DS_FREE(sb);
+        DS_ASSERT(0 && "Memory allocation failed");
+    }
 
     ds_internal* meta = (ds_internal*)block;
     DS_ATOMIC_STORE(&meta->refcount, 1);
     meta->length = 0;
 
-    sb.data = (char*)block + sizeof(ds_internal);
-    sb.data[0] = '\0';
-    sb.capacity = capacity;
+    sb->data = (char*)block + sizeof(ds_internal);
+    sb->data[0] = '\0';
+    sb->capacity = capacity;
+    DS_ATOMIC_STORE(&sb->refcount, 1);  // Initialize builder's refcount
 
     return sb;
 }
 
-DS_DEF void ds_builder_destroy(ds_stringbuilder* sb) {
-    if (sb) {
-        ds_release(&sb->data); // Handles refcount decrement and freeing
-        sb->capacity = 0;
-    }
+DS_DEF ds_builder ds_builder_retain(ds_builder sb) {
+    DS_ASSERT(sb && "ds_builder_retain: sb cannot be NULL");
+    DS_ATOMIC_FETCH_ADD(&sb->refcount, 1);
+    return sb;
 }
 
-DS_DEF int ds_builder_append(ds_stringbuilder* sb, const char* text) {
+DS_DEF void ds_builder_release(ds_builder* sb) {
+    if (!sb || !*sb) return;
+    
+    size_t old_count = DS_ATOMIC_FETCH_SUB(&(*sb)->refcount, 1);
+    if (old_count == 1) {
+        // Last reference, free the builder
+        ds_release(&(*sb)->data);  // Release the string data
+        DS_FREE(*sb);  // Free the builder struct
+    }
+    *sb = NULL;
+}
+
+DS_DEF int ds_builder_append(ds_builder sb, const char* text) {
     if (!sb || !text || !sb->data)
         return 0;
 
@@ -1748,7 +1774,7 @@ DS_DEF int ds_builder_append(ds_stringbuilder* sb, const char* text) {
     return 1;
 }
 
-DS_DEF int ds_builder_append_char(ds_stringbuilder* sb, uint32_t codepoint) {
+DS_DEF int ds_builder_append_char(ds_builder sb, uint32_t codepoint) {
     if (!sb || !sb->data)
         return 0;
 
@@ -1770,7 +1796,7 @@ DS_DEF int ds_builder_append_char(ds_stringbuilder* sb, uint32_t codepoint) {
     return 1;
 }
 
-DS_DEF int ds_builder_append_string(ds_stringbuilder* sb, ds_string str) {
+DS_DEF int ds_builder_append_string(ds_builder sb, ds_string str) {
     if (!sb || !str)
         return 0;
 
@@ -1791,7 +1817,7 @@ DS_DEF int ds_builder_append_string(ds_stringbuilder* sb, ds_string str) {
     return 1;
 }
 
-DS_DEF int ds_builder_insert(ds_stringbuilder* sb, size_t index, const char* text) {
+DS_DEF int ds_builder_insert(ds_builder sb, size_t index, const char* text) {
     if (!sb || !text || !sb->data)
         return 0;
 
@@ -1820,7 +1846,7 @@ DS_DEF int ds_builder_insert(ds_stringbuilder* sb, size_t index, const char* tex
     return 1;
 }
 
-DS_DEF void ds_builder_clear(ds_stringbuilder* sb) {
+DS_DEF void ds_builder_clear(ds_builder sb) {
     if (!sb || !sb->data)
         return;
 
@@ -1832,7 +1858,7 @@ DS_DEF void ds_builder_clear(ds_stringbuilder* sb) {
     sb->data[0] = '\0';
 }
 
-DS_DEF ds_string ds_builder_to_string(ds_stringbuilder* sb) {
+DS_DEF ds_string ds_builder_to_string(ds_builder sb) {
     if (!sb || !sb->data) {
         return NULL;
     }
@@ -1860,16 +1886,16 @@ DS_DEF ds_string ds_builder_to_string(ds_stringbuilder* sb) {
     return result;
 }
 
-DS_DEF size_t ds_builder_length(const ds_stringbuilder* sb) {
+DS_DEF size_t ds_builder_length(ds_builder sb) {
     if (!sb || !sb->data)
         return 0;
     ds_internal* meta = ds_meta(sb->data);
     return meta->length;
 }
 
-DS_DEF size_t ds_builder_capacity(const ds_stringbuilder* sb) { return sb ? sb->capacity : 0; }
+DS_DEF size_t ds_builder_capacity(ds_builder sb) { return sb ? sb->capacity : 0; }
 
-DS_DEF const char* ds_builder_cstr(const ds_stringbuilder* sb) { return sb && sb->data ? sb->data : ""; }
+DS_DEF const char* ds_builder_cstr(ds_builder sb) { return sb && sb->data ? sb->data : ""; }
 
 #endif // DS_IMPLEMENTATION
 

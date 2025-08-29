@@ -146,38 +146,38 @@ void test_release_null_safety(void) {
 // ============================================================================
 
 void test_stringbuilder_basic_usage(void) {
-    ds_stringbuilder sb = ds_builder_create();
-    TEST_ASSERT_NOT_NULL(sb.data);
-    TEST_ASSERT_TRUE(ds_builder_capacity(&sb) > 0);
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(&sb));
+    ds_builder sb = ds_builder_create();
+    TEST_ASSERT_NOT_NULL(sb->data);
+    TEST_ASSERT_TRUE(ds_builder_capacity(sb) > 0);
+    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(sb));
 
-    TEST_ASSERT_TRUE(ds_builder_append(&sb, "Hello"));
-    TEST_ASSERT_EQUAL_STRING("Hello", ds_builder_cstr(&sb));
-    TEST_ASSERT_EQUAL_UINT(5, ds_builder_length(&sb));
+    TEST_ASSERT_TRUE(ds_builder_append(sb, "Hello"));
+    TEST_ASSERT_EQUAL_STRING("Hello", ds_builder_cstr(sb));
+    TEST_ASSERT_EQUAL_UINT(5, ds_builder_length(sb));
 
-    ds_builder_destroy(&sb);
-    TEST_ASSERT_NULL(sb.data);
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_capacity(&sb));
+    ds_builder_release(&sb);
+    TEST_ASSERT_NULL(sb);
+    // Builder is now NULL after release
 }
 
 void test_stringbuilder_to_string_consumption(void) {
-    ds_stringbuilder sb = ds_builder_create();
-    ds_builder_append(&sb, "Test content");
+    ds_builder sb = ds_builder_create();
+    ds_builder_append(sb, "Test content");
 
-    size_t original_capacity = ds_builder_capacity(&sb);
+    size_t original_capacity = ds_builder_capacity(sb);
     TEST_ASSERT_TRUE(original_capacity > 0);
 
-    // Convert to string - this should consume the StringBuilder
-    ds_string result = ds_builder_to_string(&sb);
+    // Convert to string - with reference counting, builder stays valid
+    ds_string result = ds_builder_to_string(sb);
     TEST_ASSERT_EQUAL_STRING("Test content", result);
     TEST_ASSERT_EQUAL_UINT(1, ds_refcount(result));
 
-    // StringBuilder should be consumed (empty)
-    TEST_ASSERT_NULL(sb.data);
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_capacity(&sb));
-
-    // Should be safe to destroy consumed StringBuilder
-    ds_builder_destroy(&sb);
+    // Builder should still be valid but data consumed (old behavior)
+    TEST_ASSERT_NOT_NULL(sb);
+    TEST_ASSERT_NULL(sb->data);  // Data was consumed
+    
+    ds_release(&result);
+    ds_builder_release(&sb);
 
     ds_release(&result);
 }
@@ -185,16 +185,16 @@ void test_stringbuilder_to_string_consumption(void) {
 void test_stringbuilder_capacity_growth(void) {
     printf("=== DEBUG: Capacity Growth Test ===\n");
 
-    ds_stringbuilder sb = ds_builder_create_with_capacity(8);
-    printf("Created: capacity=%zu, length=%zu\n", ds_builder_capacity(&sb), ds_builder_length(&sb));
+    ds_builder sb = ds_builder_create_with_capacity(8);
+    printf("Created: capacity=%zu, length=%zu\n", ds_builder_capacity(sb), ds_builder_length(sb));
 
     // Fill beyond initial capacity - but add debug output for each step
     for (int i = 0; i < 10; i++) {
-        printf("Before append %d: length=%zu, capacity=%zu, data=%p\n", i + 1, ds_builder_length(&sb), ds_builder_capacity(&sb),
-               (void*)sb.data);
+        printf("Before append %d: length=%zu, capacity=%zu, data=%p\n", i + 1, ds_builder_length(sb), ds_builder_capacity(sb),
+               (void*)sb->data);
 
         printf("  About to call ds_builder_append...\n");
-        int result = ds_builder_append(&sb, "X");
+        int result = ds_builder_append(sb, "X");
         printf("  ds_builder_append returned: %d\n", result);
 
         if (!result) {
@@ -202,21 +202,21 @@ void test_stringbuilder_capacity_growth(void) {
             break;
         }
 
-        printf("After append %d: length=%zu, capacity=%zu, data=%p\n", i + 1, ds_builder_length(&sb), ds_builder_capacity(&sb),
-               (void*)sb.data);
+        printf("After append %d: length=%zu, capacity=%zu, data=%p\n", i + 1, ds_builder_length(sb), ds_builder_capacity(sb),
+               (void*)sb->data);
 
         // Check if data pointer changed (indicating realloc)
         static void* last_data = NULL;
-        if (last_data && last_data != sb.data) {
-            printf("  --> Data pointer changed from %p to %p (realloc happened)\n", last_data, (void*)sb.data);
+        if (last_data && last_data != sb->data) {
+            printf("  --> Data pointer changed from %p to %p (realloc happened)\n", last_data, (void*)sb->data);
         }
-        last_data = sb.data;
+        last_data = sb->data;
     }
 
-    printf("Final: length=%zu, capacity=%zu\n", ds_builder_length(&sb), ds_builder_capacity(&sb));
+    printf("Final: length=%zu, capacity=%zu\n", ds_builder_length(sb), ds_builder_capacity(sb));
 
     printf("About to destroy...\n");
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
     printf("Destroyed successfully\n");
 }
 
@@ -225,128 +225,129 @@ void test_stringbuilder_ensure_unique_behavior(void) {
     ds_string original = ds_new("Original content");
     ds_string shared = ds_retain(original);
 
-    // Create StringBuilder that shares the data
-    ds_stringbuilder sb;
-    sb.data = shared;
-    sb.capacity = ds_length(shared) + 1;
+    // Create StringBuilder and manually set up shared data (for testing copy-on-write)
+    ds_builder sb = ds_builder_create();
+    ds_release(&sb->data);  // Release the initial empty string
+    sb->data = shared;  // Share the data
+    sb->capacity = ds_length(shared) + 1;
 
-    TEST_ASSERT_EQUAL_UINT(2, ds_refcount(sb.data)); // original + sb.data
+    TEST_ASSERT_EQUAL_UINT(2, ds_refcount(sb->data)); // original + sb->data
 
     // Modifying StringBuilder should trigger copy-on-write
-    TEST_ASSERT_TRUE(ds_builder_append(&sb, " + more"));
+    TEST_ASSERT_TRUE(ds_builder_append(sb, " + more"));
 
     TEST_ASSERT_EQUAL_STRING("Original content", original);
-    TEST_ASSERT_EQUAL_STRING("Original content + more", ds_builder_cstr(&sb));
+    TEST_ASSERT_EQUAL_STRING("Original content + more", ds_builder_cstr(sb));
     TEST_ASSERT_EQUAL_UINT(1, ds_refcount(original)); // Only original now
 
     ds_release(&original);
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void test_stringbuilder_step_by_step(void) {
     printf("Creating StringBuilder with capacity 8...\n");
-    ds_stringbuilder sb = ds_builder_create_with_capacity(8);
-    TEST_ASSERT_NOT_NULL(sb.data);
-    TEST_ASSERT_EQUAL_UINT(8, ds_builder_capacity(&sb));
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(&sb));
-    printf("Initial refcount: %zu\n", ds_refcount(sb.data));
+    ds_builder sb = ds_builder_create_with_capacity(8);
+    TEST_ASSERT_NOT_NULL(sb->data);
+    TEST_ASSERT_EQUAL_UINT(8, ds_builder_capacity(sb));
+    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(sb));
+    printf("Initial refcount: %zu\n", ds_refcount(sb->data));
     // Test each append individually
     for (int i = 1; i <= 10; i++) {
-        printf("Before append %d: length=%zu, capacity=%zu, refcount=%zu\n", i, ds_builder_length(&sb), ds_builder_capacity(&sb),
-               ds_refcount(sb.data));
-        int result = ds_builder_append(&sb, "X");
+        printf("Before append %d: length=%zu, capacity=%zu, refcount=%zu\n", i, ds_builder_length(sb), ds_builder_capacity(sb),
+               ds_refcount(sb->data));
+        int result = ds_builder_append(sb, "X");
         TEST_ASSERT_TRUE(result);
-        printf("After append %d: length=%zu, capacity=%zu, refcount=%zu\n", i, ds_builder_length(&sb), ds_builder_capacity(&sb),
-               ds_refcount(sb.data));
+        printf("After append %d: length=%zu, capacity=%zu, refcount=%zu\n", i, ds_builder_length(sb), ds_builder_capacity(sb),
+               ds_refcount(sb->data));
         if (i <= 10) {
-            TEST_ASSERT_EQUAL_UINT(i, ds_builder_length(&sb));
+            TEST_ASSERT_EQUAL_UINT(i, ds_builder_length(sb));
         }
     }
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void test_stringbuilder_refcount_tracking(void) {
-    ds_stringbuilder sb = ds_builder_create_with_capacity(4);
+    ds_builder sb = ds_builder_create_with_capacity(4);
     // Check that refcount starts at 1
-    TEST_ASSERT_EQUAL_UINT(1, ds_refcount(sb.data));
+    TEST_ASSERT_EQUAL_UINT(1, ds_refcount(sb->data));
     // After a few appends, refcount should still be 1
-    ds_builder_append(&sb, "AB");
-    TEST_ASSERT_EQUAL_UINT(1, ds_refcount(sb.data));
-    ds_builder_append(&sb, "CD"); // This should trigger growth
-    TEST_ASSERT_EQUAL_UINT(1, ds_refcount(sb.data));
-    ds_builder_destroy(&sb);
+    ds_builder_append(sb, "AB");
+    TEST_ASSERT_EQUAL_UINT(1, ds_refcount(sb->data));
+    ds_builder_append(sb, "CD"); // This should trigger growth
+    TEST_ASSERT_EQUAL_UINT(1, ds_refcount(sb->data));
+    ds_builder_release(&sb);
 }
 
 void test_stringbuilder_ensure_unique_isolation(void) {
     // Test the ensure_unique function in isolation
-    ds_stringbuilder sb = ds_builder_create_with_capacity(4);
-    ds_builder_append(&sb, "Test");
+    ds_builder sb = ds_builder_create_with_capacity(4);
+    ds_builder_append(sb, "Test");
     // Manually increase refcount to trigger ensure_unique
-    ds_string shared = ds_retain(sb.data);
-    TEST_ASSERT_EQUAL_UINT(2, ds_refcount(sb.data));
+    ds_string shared = ds_retain(sb->data);
+    TEST_ASSERT_EQUAL_UINT(2, ds_refcount(sb->data));
 
     // This should trigger ensure_unique
-    int result = ds_builder_append(&sb, "X");
+    int result = ds_builder_append(sb, "X");
     TEST_ASSERT_TRUE(result);
 
     ds_release(&shared);
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void test_stringbuilder_minimal_create_destroy(void) {
     printf("=== Testing minimal create/destroy ===\n");
-    ds_stringbuilder sb = ds_builder_create_with_capacity(8);
-    printf("Created: data=%p, capacity=%zu\n", (void*)sb.data, sb.capacity);
-    ds_builder_destroy(&sb);
+    ds_builder sb = ds_builder_create_with_capacity(8);
+    printf("Created: data=%p, capacity=%zu\n", (void*)sb->data, sb->capacity);
+    ds_builder_release(&sb);
     printf("Destroyed successfully\n");
 }
 
 void test_stringbuilder_single_append(void) {
     printf("=== Testing single append ===\n");
-    ds_stringbuilder sb = ds_builder_create_with_capacity(8);
-    printf("Before append: length=%zu, capacity=%zu, refcount=%zu\n", ds_builder_length(&sb), ds_builder_capacity(&sb),
-           ds_refcount(sb.data));
+    ds_builder sb = ds_builder_create_with_capacity(8);
+    printf("Before append: length=%zu, capacity=%zu, refcount=%zu\n", ds_builder_length(sb), ds_builder_capacity(sb),
+           ds_refcount(sb->data));
 
-    int result = ds_builder_append(&sb, "X");
+    int result = ds_builder_append(sb, "X");
     printf("Append result: %d\n", result);
-    printf("After append: length=%zu, capacity=%zu, refcount=%zu\n", ds_builder_length(&sb), ds_builder_capacity(&sb),
-           ds_refcount(sb.data));
+    printf("After append: length=%zu, capacity=%zu, refcount=%zu\n", ds_builder_length(sb), ds_builder_capacity(sb),
+           ds_refcount(sb->data));
 
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
     printf("Single append test completed\n");
 }
 
 void test_stringbuilder_no_growth_needed(void) {
     printf("=== Testing multiple appends without growth ===\n");
-    ds_stringbuilder sb = ds_builder_create_with_capacity(10);
+    ds_builder sb = ds_builder_create_with_capacity(10);
 
     for (int i = 1; i <= 5; i++) {
         printf("Append %d: ", i);
-        int result = ds_builder_append(&sb, "X");
-        printf("result=%d, length=%zu, capacity=%zu\n", result, ds_builder_length(&sb), ds_builder_capacity(&sb));
+        int result = ds_builder_append(sb, "X");
+        printf("result=%d, length=%zu, capacity=%zu\n", result, ds_builder_length(sb), ds_builder_capacity(sb));
     }
 
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
     printf("No growth test completed\n");
 }
 
 void test_stringbuilder_exactly_one_growth(void) {
     printf("=== Testing exactly one growth trigger ===\n");
-    ds_stringbuilder sb = ds_builder_create_with_capacity(4);
+    ds_builder sb = ds_builder_create_with_capacity(4);
 
     // Fill to capacity (should be fine)
     for (int i = 1; i <= 3; i++) {
         printf("Safe append %d: ", i);
-        int result = ds_builder_append(&sb, "X");
-        printf("result=%d, length=%zu, capacity=%zu\n", result, ds_builder_length(&sb), ds_builder_capacity(&sb));
+        int result = ds_builder_append(sb, "X");
+        printf("result=%d, length=%zu, capacity=%zu\n", result, ds_builder_length(sb), ds_builder_capacity(sb));
     }
 
     printf("About to trigger growth...\n");
     // This should trigger growth
-    int result = ds_builder_append(&sb, "Y");
-    printf("Growth append result=%d, length=%zu, capacity=%zu\n", result, ds_builder_length(&sb), ds_builder_capacity(&sb));
+    int result = ds_builder_append(sb, "Y");
+    printf("Growth append result=%d, length=%zu, capacity=%zu\n", result, ds_builder_length(sb), ds_builder_capacity(sb));
 
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
     printf("One growth test completed\n");
 }
 
@@ -715,113 +716,113 @@ void test_create_with_length(void) {
 // ============================================================================
 
 void test_stringbuilder_insert(void) {
-    ds_stringbuilder sb = ds_builder_create();
+    ds_builder sb = ds_builder_create();
     
     // Build initial string
-    ds_builder_append(&sb, "Hello World");
+    ds_builder_append(sb, "Hello World");
     
     // Insert at beginning
-    TEST_ASSERT_TRUE(ds_builder_insert(&sb, 0, ">> "));
-    TEST_ASSERT_EQUAL_STRING(">> Hello World", ds_builder_cstr(&sb));
+    TEST_ASSERT_TRUE(ds_builder_insert(sb, 0, ">> "));
+    TEST_ASSERT_EQUAL_STRING(">> Hello World", ds_builder_cstr(sb));
     
     // Insert in middle (after ">> Hello ", before "World")
-    TEST_ASSERT_TRUE(ds_builder_insert(&sb, 9, "Beautiful "));
-    TEST_ASSERT_EQUAL_STRING(">> Hello Beautiful World", ds_builder_cstr(&sb));
+    TEST_ASSERT_TRUE(ds_builder_insert(sb, 9, "Beautiful "));
+    TEST_ASSERT_EQUAL_STRING(">> Hello Beautiful World", ds_builder_cstr(sb));
     
     // Insert at end
-    size_t len = ds_builder_length(&sb);
-    TEST_ASSERT_TRUE(ds_builder_insert(&sb, len, "!"));
-    TEST_ASSERT_EQUAL_STRING(">> Hello Beautiful World!", ds_builder_cstr(&sb));
+    size_t len = ds_builder_length(sb);
+    TEST_ASSERT_TRUE(ds_builder_insert(sb, len, "!"));
+    TEST_ASSERT_EQUAL_STRING(">> Hello Beautiful World!", ds_builder_cstr(sb));
     
     // Insert beyond bounds (should fail)
-    TEST_ASSERT_FALSE(ds_builder_insert(&sb, 1000, "Bad"));
+    TEST_ASSERT_FALSE(ds_builder_insert(sb, 1000, "Bad"));
     
     // Insert NULL (should fail)
     // NULL test removed - now causes assertion
-    // TEST_ASSERT_FALSE(ds_builder_insert(&sb, 0, NULL));
+    // TEST_ASSERT_FALSE(ds_builder_insert(sb, 0, NULL));
     
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void test_stringbuilder_clear(void) {
-    ds_stringbuilder sb = ds_builder_create();
+    ds_builder sb = ds_builder_create();
     
     // Add content
-    ds_builder_append(&sb, "Hello World");
-    TEST_ASSERT_EQUAL_UINT(11, ds_builder_length(&sb));
-    size_t capacity_before = ds_builder_capacity(&sb);
+    ds_builder_append(sb, "Hello World");
+    TEST_ASSERT_EQUAL_UINT(11, ds_builder_length(sb));
+    size_t capacity_before = ds_builder_capacity(sb);
     
     // Clear
-    ds_builder_clear(&sb);
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(&sb));
-    TEST_ASSERT_EQUAL_STRING("", ds_builder_cstr(&sb));
-    TEST_ASSERT_EQUAL_UINT(capacity_before, ds_builder_capacity(&sb)); // Capacity unchanged
+    ds_builder_clear(sb);
+    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(sb));
+    TEST_ASSERT_EQUAL_STRING("", ds_builder_cstr(sb));
+    TEST_ASSERT_EQUAL_UINT(capacity_before, ds_builder_capacity(sb)); // Capacity unchanged
     
     // Can append after clear
-    TEST_ASSERT_TRUE(ds_builder_append(&sb, "New content"));
-    TEST_ASSERT_EQUAL_STRING("New content", ds_builder_cstr(&sb));
+    TEST_ASSERT_TRUE(ds_builder_append(sb, "New content"));
+    TEST_ASSERT_EQUAL_STRING("New content", ds_builder_cstr(sb));
     
     // Clear again
-    ds_builder_clear(&sb);
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(&sb));
+    ds_builder_clear(sb);
+    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(sb));
     
     // Clear empty StringBuilder (should be safe)
-    ds_builder_clear(&sb);
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(&sb));
+    ds_builder_clear(sb);
+    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(sb));
     
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void test_stringbuilder_append_string(void) {
-    ds_stringbuilder sb = ds_builder_create();
+    ds_builder sb = ds_builder_create();
     
     // Test appending ds_string
     ds_string str1 = ds_new("Hello ");
     ds_string str2 = ds_new("World");
     
-    TEST_ASSERT_TRUE(ds_builder_append_string(&sb, str1));
-    TEST_ASSERT_EQUAL_STRING("Hello ", ds_builder_cstr(&sb));
+    TEST_ASSERT_TRUE(ds_builder_append_string(sb, str1));
+    TEST_ASSERT_EQUAL_STRING("Hello ", ds_builder_cstr(sb));
     
-    TEST_ASSERT_TRUE(ds_builder_append_string(&sb, str2));
-    TEST_ASSERT_EQUAL_STRING("Hello World", ds_builder_cstr(&sb));
+    TEST_ASSERT_TRUE(ds_builder_append_string(sb, str2));
+    TEST_ASSERT_EQUAL_STRING("Hello World", ds_builder_cstr(sb));
     
     // Test with empty string
     ds_string empty = ds_new("");
-    TEST_ASSERT_TRUE(ds_builder_append_string(&sb, empty));
-    TEST_ASSERT_EQUAL_STRING("Hello World", ds_builder_cstr(&sb)); // Unchanged
+    TEST_ASSERT_TRUE(ds_builder_append_string(sb, empty));
+    TEST_ASSERT_EQUAL_STRING("Hello World", ds_builder_cstr(sb)); // Unchanged
     
     // Test with NULL
     // NULL test removed - now causes assertion
-    // TEST_ASSERT_FALSE(ds_builder_append_string(&sb, NULL));
+    // TEST_ASSERT_FALSE(ds_builder_append_string(sb, NULL));
     
     // Test with Unicode string
     ds_string emoji = ds_new(" 🚀🌍");
-    TEST_ASSERT_TRUE(ds_builder_append_string(&sb, emoji));
-    TEST_ASSERT_EQUAL_STRING("Hello World 🚀🌍", ds_builder_cstr(&sb));
+    TEST_ASSERT_TRUE(ds_builder_append_string(sb, emoji));
+    TEST_ASSERT_EQUAL_STRING("Hello World 🚀🌍", ds_builder_cstr(sb));
     
     // Cleanup
     ds_release(&str1);
     ds_release(&str2);
     ds_release(&empty);
     ds_release(&emoji);
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void test_stringbuilder_append_char_unicode(void) {
-    ds_stringbuilder sb = ds_builder_create();
+    ds_builder sb = ds_builder_create();
     
     // Test appending various Unicode codepoints
-    TEST_ASSERT_TRUE(ds_builder_append_char(&sb, 0x41)); // 'A'
-    TEST_ASSERT_TRUE(ds_builder_append_char(&sb, 0x1F680)); // 🚀
-    TEST_ASSERT_TRUE(ds_builder_append_char(&sb, 0x4E16)); // 世
-    TEST_ASSERT_TRUE(ds_builder_append_char(&sb, 0x1F30D)); // 🌍
+    TEST_ASSERT_TRUE(ds_builder_append_char(sb, 0x41)); // 'A'
+    TEST_ASSERT_TRUE(ds_builder_append_char(sb, 0x1F680)); // 🚀
+    TEST_ASSERT_TRUE(ds_builder_append_char(sb, 0x4E16)); // 世
+    TEST_ASSERT_TRUE(ds_builder_append_char(sb, 0x1F30D)); // 🌍
     
-    TEST_ASSERT_EQUAL_STRING("A🚀世🌍", ds_builder_cstr(&sb));
+    TEST_ASSERT_EQUAL_STRING("A🚀世🌍", ds_builder_cstr(sb));
     
     // Test invalid codepoint (should append replacement character)
-    TEST_ASSERT_TRUE(ds_builder_append_char(&sb, 0x110000)); // Invalid
+    TEST_ASSERT_TRUE(ds_builder_append_char(sb, 0x110000)); // Invalid
     
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 // ============================================================================
@@ -1610,57 +1611,57 @@ void test_ds_codepoint_at(void) {
 }
 
 void test_ds_builder_length(void) {
-    ds_stringbuilder sb = ds_builder_create();
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(&sb));
+    ds_builder sb = ds_builder_create();
+    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(sb));
     
-    ds_builder_append(&sb, "Hello");
-    TEST_ASSERT_EQUAL_UINT(5, ds_builder_length(&sb));
+    ds_builder_append(sb, "Hello");
+    TEST_ASSERT_EQUAL_UINT(5, ds_builder_length(sb));
     
-    ds_builder_append(&sb, " World");
-    TEST_ASSERT_EQUAL_UINT(11, ds_builder_length(&sb));
+    ds_builder_append(sb, " World");
+    TEST_ASSERT_EQUAL_UINT(11, ds_builder_length(sb));
     
-    ds_builder_clear(&sb);
-    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(&sb));
+    ds_builder_clear(sb);
+    TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(sb));
     
     // NULL handling
     // NULL test removed - now causes assertion
     // TEST_ASSERT_EQUAL_UINT(0, ds_builder_length(NULL));
     
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void test_ds_builder_capacity(void) {
-    ds_stringbuilder sb = ds_builder_create_with_capacity(100);
-    TEST_ASSERT_EQUAL_UINT(100, ds_builder_capacity(&sb));
+    ds_builder sb = ds_builder_create_with_capacity(100);
+    TEST_ASSERT_EQUAL_UINT(100, ds_builder_capacity(sb));
     
     // Add enough content to potentially trigger growth
     for (int i = 0; i < 50; i++) {
-        ds_builder_append(&sb, "ab");
+        ds_builder_append(sb, "ab");
     }
     
     // Capacity should be >= length after operations
-    TEST_ASSERT_GREATER_OR_EQUAL(ds_builder_length(&sb), ds_builder_capacity(&sb));
+    TEST_ASSERT_GREATER_OR_EQUAL(ds_builder_length(sb), ds_builder_capacity(sb));
     
     // NULL handling
     // NULL test removed - now causes assertion
     // TEST_ASSERT_EQUAL_UINT(0, ds_builder_capacity(NULL));
     
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 void test_ds_builder_cstr(void) {
-    ds_stringbuilder sb = ds_builder_create();
+    ds_builder sb = ds_builder_create();
     
     // Empty builder
-    const char* cstr1 = ds_builder_cstr(&sb);
+    const char* cstr1 = ds_builder_cstr(sb);
     TEST_ASSERT_EQUAL_STRING("", cstr1);
     
-    ds_builder_append(&sb, "Hello");
-    const char* cstr2 = ds_builder_cstr(&sb);
+    ds_builder_append(sb, "Hello");
+    const char* cstr2 = ds_builder_cstr(sb);
     TEST_ASSERT_EQUAL_STRING("Hello", cstr2);
     
-    ds_builder_append(&sb, " World");
-    const char* cstr3 = ds_builder_cstr(&sb);
+    ds_builder_append(sb, " World");
+    const char* cstr3 = ds_builder_cstr(sb);
     TEST_ASSERT_EQUAL_STRING("Hello World", cstr3);
     
     // NULL handling
@@ -1668,7 +1669,7 @@ void test_ds_builder_cstr(void) {
     // const char* null_cstr = ds_builder_cstr(NULL);
     // TEST_ASSERT_EQUAL_STRING("", null_cstr);
     
-    ds_builder_destroy(&sb);
+    ds_builder_release(&sb);
 }
 
 // ============================================================================

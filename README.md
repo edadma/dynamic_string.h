@@ -88,12 +88,12 @@ ds_string modified = ds_append(base, " World");
 - **Automatic growth** - handles capacity management
 
 ```c
-ds_stringbuilder sb = ds_builder_create();
+ds_builder sb = ds_builder_create();
 for (int i = 0; i < 1000; i++) {
     ds_builder_append(&sb, "data ");
 }
 ds_string result = ds_builder_to_string(&sb);  // sb becomes consumed
-ds_builder_destroy(&sb);  // Always safe to call
+ds_builder_release(&sb);  // Always safe to call
 ```
 
 ### 🌍 Unicode Support
@@ -119,7 +119,7 @@ while ((cp = ds_iter_next(&iter)) != 0) {
 
 **Important: NULL Parameter Validation**
 
-As of v0.2.2, all functions perform strict NULL parameter validation using assertions:
+As of v0.3.0, all functions perform strict NULL parameter validation using assertions:
 
 ```c
 // ✅ Valid usage
@@ -180,11 +180,11 @@ ds_release(&str);
 **Multiple operations - use StringBuilder:**
 
 ```c
-ds_stringbuilder sb = ds_builder_create();
+ds_builder sb = ds_builder_create();
 ds_builder_append(&sb, "Building ");
 ds_builder_append(&sb, "efficiently");
 ds_string result = ds_builder_to_string(&sb);  // sb consumed here
-ds_builder_destroy(&sb);  // Always safe to call
+ds_builder_release(&sb);  // Always safe to call
 // Use result...
 ds_release(&result);
 ```
@@ -247,24 +247,24 @@ int ds_is_empty(ds_string str);
 
 ```c
 // StringBuilder creation and management
-ds_stringbuilder ds_builder_create(void);
-ds_stringbuilder ds_builder_create_with_capacity(size_t capacity);
-void ds_builder_destroy(ds_stringbuilder* sb);
+ds_builder ds_builder_create(void);
+ds_builder ds_builder_create_with_capacity(size_t capacity);
+void ds_builder_release(ds_builder* sb);
 
 // Building operations (modify in-place)
-int ds_builder_append(ds_stringbuilder* sb, const char* text);
-int ds_builder_append_char(ds_stringbuilder* sb, uint32_t codepoint);
-int ds_builder_append_string(ds_stringbuilder* sb, ds_string str);
-int ds_builder_insert(ds_stringbuilder* sb, size_t index, const char* text);
-void ds_builder_clear(ds_stringbuilder* sb);
+int ds_builder_append(ds_builder* sb, const char* text);
+int ds_builder_append_char(ds_builder* sb, uint32_t codepoint);
+int ds_builder_append_string(ds_builder* sb, ds_string str);
+int ds_builder_insert(ds_builder* sb, size_t index, const char* text);
+void ds_builder_clear(ds_builder* sb);
 
 // Conversion (StringBuilder becomes consumed)
-ds_string ds_builder_to_string(ds_stringbuilder* sb);
+ds_string ds_builder_to_string(ds_builder* sb);
 
 // Inspection
-size_t ds_builder_length(const ds_stringbuilder* sb);
-size_t ds_builder_capacity(const ds_stringbuilder* sb);
-const char* ds_builder_cstr(const ds_stringbuilder* sb);
+size_t ds_builder_length(const ds_builder* sb);
+size_t ds_builder_capacity(const ds_builder* sb);
+const char* ds_builder_cstr(const ds_builder* sb);
 ```
 
 ### Unicode Functions
@@ -311,7 +311,16 @@ make
 
 ## Version History
 
-### v0.2.2 (Current)
+### v0.3.0 (Current)
+- **BREAKING CHANGE**: Renamed `ds_stringbuilder` to `ds_builder` for consistency
+- **BREAKING CHANGE**: `ds_builder` is now heap-allocated and reference-counted like `ds_string`
+- **BREAKING CHANGE**: Replaced `ds_builder_destroy()` with `ds_builder_release()` that sets pointer to NULL
+- **Added**: `ds_builder_retain()` for safe sharing of builders between different parts of code
+- **Changed**: Builder functions now take `ds_builder` (pointer) instead of `ds_builder*`
+- **Improved**: Consistent retain/release semantics across both `ds_string` and `ds_builder`
+- **Fixed**: Memory management is now fully reference-counted for builders
+
+### v0.2.2
 - **BREAKING CHANGE**: All functions now assert on NULL `ds_string` parameters instead of handling them gracefully
 - **API Safety**: Consistent assertion-based parameter validation across entire API
 - **Error Detection**: NULL parameters now trigger immediate assertion failures with descriptive error messages
